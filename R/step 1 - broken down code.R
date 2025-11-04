@@ -14,8 +14,6 @@ path_to_output_folder <- "data/deadwood/processed"  #from this folder (ie. "data
 logger_type <- "baro_U20"
 
 
-timestamp_format = "mdy_hms" # NEED TO CHANGE THIS TO AN IFELSE STATEMENT??
-
 
 timestamp_timezone = "UTC"
 
@@ -23,7 +21,7 @@ timestamp_timezone = "UTC"
 source("R/step1_utils.R")
 library(tidyverse)
 
-bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_type, metadata_path, timestamp_format = "mdy_hms", timestamp_timezone = "UTC") {
+bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_type, metadata_path,  timestamp_timezone = "UTC") {
   
   # QAQC and format metadata file
   metadata <- QAQC_metadata(metadata_path)
@@ -71,12 +69,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
   
   # LABEL AND TRIM ####
   ## Loop to link site_station_code to logger data by serial number and trim data by install and retrieval dates in metadata
-  ## METADAT TIMESTAMPS ####
-  # format timestamp
-  # NOTE: all times are in PDT (setting timezone to UTC tricks R to ignore daylight savings time)
-  metadata$timestamp_deploy <- lubridate::mdy_hms(metadata$timestamp_deploy, tz = timestamp_timezone)
-  metadata$timestamp_remove <- lubridate::mdy_hms(metadata$timestamp_remove, tz = timestamp_timezone)
-  
+
   if(any(is.na(metadata$timestamp_deploy))) {
     missing_ts <- hobo_data_raw %>% filter(is.na(timestamp_deploy))
     missing_ts_sn <- unique(missing_ts$sn)
@@ -117,10 +110,8 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
       # assign location based on matching timestamps in metadata
       data_i$site_station_code[data_i$timestamp >= deploy_j & data_i$timestamp <= remove_j] <- site_j
       
-        
       } # end of j loop
-    } # end of i loop
-    
+
     # trim data to within install/removal at each site
     data_i <- data_i %>% drop_na(site_station_code)
     sites_compiled <- rbind(sites_compiled, data_i)
@@ -234,6 +225,6 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
     labs(x = "Timestamp (YY-MM)", y = colnames(sites_compiled[3]))
   
   
-  return(list(sites_compiled, file_summary, multi_plots))
+  return(list(sites_compiled, multi_plots))
 } # end of function
 
