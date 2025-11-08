@@ -1,32 +1,31 @@
-
-
-# to run this example using our data, you can access raw hobo files here:
-metadata_path <- "data/deadwood/raw/deadwood_metadata.csv"
-
-
-
-path_to_raw_folder <- "data/deadwood/raw/baro"
-
-
-path_to_output_folder <- "data/deadwood/processed"  #from this folder (ie. "data/baro/2024/raw" or simply the Desktop of your local computer), bind_hobo_files will look for a year folder corresponding to your logger data, and if one isn't made, it will create a new year folder and a "processed" folder to store your processed data (ie. "data/baro/2024/processed")
-
-
-logger_type <- "baro_U20"
-
-
-
-timestamp_timezone = "UTC"
+# 
+# 
+# # to run this example using our data, you can access raw hobo files here:
+# metadata_path <- "data/deadwood/raw/deadwood_metadata.csv"
+# 
+# 
+# 
+# path_to_raw_folder <- "data/deadwood/raw/baro"
+# 
+# 
+# path_to_output_folder <- "data/deadwood/processed"  #from this folder (ie. "data/baro/2024/raw" or simply the Desktop of your local computer), bind_hobo_files will look for a year folder corresponding to your logger data, and if one isn't made, it will create a new year folder and a "processed" folder to store your processed data (ie. "data/baro/2024/processed")
+# 
+# 
+# 
+# 
+# timestamp_timezone = "UTC"
+library(tidyverse)
 
 
 source("R/step1_utils.R")
-library(tidyverse)
 
 bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_type, metadata_path,  timestamp_timezone = "UTC") {
   
   # QAQC and format metadata file
   metadata <- QAQC_metadata(metadata_path)
   
-
+  logger_type <- QAQC_loggertype(logger_type)
+  
   ## GET DATA FROM HOBO CSV FILES####
   #make sure all paths have trailing slash
   if (!endsWith(path_to_raw_folder, "/")) {
@@ -127,41 +126,60 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
   # order by site and timestamp
   sites_compiled<- sites_compiled[order(sites_compiled$site_station_code, sites_compiled$timestamp), ]
   
+  measurement_type_raw <- unique(metadat_link$metric)
+  
+  
+  #QAQC
+  measurement_type <- qc_measurement_type(measurement_type_raw)
+  
+  
+  
+  #####
+  # NEED TO ADD CODE FOR TIDBIT QAQC STILL
+  #####
+  
+  
+  # mutate a column for logger type and metric  
+  sites_compiled <- sites_compiled %>%
+    mutate(logger_type = logger_type, 
+           metric = measurement_type)
+  
+  
   # change column names to remove spaces and symbols for data processing
   # if columns are in different units, then just keep original headers
   if(colnames(sites_compiled)[3]=="DO conc mg/L"){
-    colnames(sites_compiled)[3]<- "do_mgl_U26"
+    colnames(sites_compiled)[3]<- "do_mgl"
     logger_header <- "DO"
     
     if(colnames(sites_compiled)[4]=="Temp °C"){
-      colnames(sites_compiled)[4]<- "watertemp_C_U26"
+      colnames(sites_compiled)[4]<- "watertemp_C"
     }
   }
-  if(colnames(sites_compiled)[3]=="Abs Pres kPa" & logger_type == "baro_U20"){
-    colnames(sites_compiled)[3]<- "airpress_kPa_U20"
-    sites_compiled <- sites_compiled[complete.cases(sites_compiled$airpress_kPa_U20),]
+  if(colnames(sites_compiled)[3]=="Abs Pres kPa" & measurement_type == "barometric"){
+    colnames(sites_compiled)[3]<- "airpress_kPa"
+    sites_compiled <- sites_compiled[complete.cases(sites_compiled$airpress_kPa),]
     
     logger_header <- "BARO"
     if(colnames(sites_compiled)[4]=="Temp °C"){
-      colnames(sites_compiled)[4]<- "airtemp_C_U20"
+      colnames(sites_compiled)[4]<- "airtemp_C"
     }
   }
-  if(colnames(sites_compiled)[3]=="Abs Pres kPa" & logger_type == "waterlevel_U20"){
-    colnames(sites_compiled)[3]<- "waterpress_kPa_U20"
+  if(colnames(sites_compiled)[3]=="Abs Pres kPa" & measurement_type == "waterlevel"){
+    colnames(sites_compiled)[3]<- "waterpress_kPa"
     logger_header <- "WL"
     
     if(colnames(sites_compiled)[4]=="Temp °C"){
-      colnames(sites_compiled)[4]<- "watertemp_C_U20"
+      colnames(sites_compiled)[4]<- "watertemp_C"
     }
   }
-  if(colnames(sites_compiled)[3]=="Temp °C" & logger_type == "watertemp_TidbiT"){
+  if(colnames(sites_compiled)[3]=="Temp °C" & logger_type == "watertemp_tidbit"){
     logger_header <- "WT"
-    colnames(sites_compiled)[3]<- "watertemp_C_TidbiT"
+    colnames(sites_compiled)[3]<- "watertemp_C"
     
   }
-  if(colnames(sites_compiled)[3]=="Temp °C" & logger_type == "airtemp_TidbiT"){
+  if(colnames(sites_compiled)[3]=="Temp °C" & logger_type == "airtemp_tidbiT"){
     logger_header <- "AT"
-    colnames(sites_compiled)[3]<- "airtemp_C_TidbiT"
+    colnames(sites_compiled)[3]<- "airtemp_C"
     
   }
   
@@ -204,13 +222,13 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
       # write_csv(site_year_j, paste0(path_to_output_folder, year_j,"/", site_i,"_",logger_header,"_", start_j,"_", end_j, "_v0.1", ".csv"))
       write.csv(site_year_j, paste0(path_to_output_folder, year_j,"/processed/", site_i,"_",logger_header,"_", start_j,"_", end_j, "_v0.1", ".csv"), row.names = FALSE)
       
-      message(paste("Data (v0.1) from",site_i,"added to", year_j, "folder"))
+      print(paste("Data (v0.1) from",site_i,"added to", year_j, "folder"))
       
     } #end of year level loop
     
   } # end of site level loop
   
-  message("List returned: [1] trimmed and compiled dataset of csvs in raw folder [2] file summary of csvs in raw folder [3] summary plots of data by site_station_code and timestamp")
+  print("List returned: [1] trimmed and compiled dataset of csvs in raw folder [2] file summary of csvs in raw folder [3] summary plots of data by site_station_code and timestamp")
   
   ## Graph Raw Data ####
   sites_compiled[,3] <- as.numeric(sites_compiled[,3])

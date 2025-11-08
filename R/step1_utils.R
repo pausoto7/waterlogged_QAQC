@@ -59,10 +59,49 @@ QAQC_metadata <- function(metadata_path) {
   })
 }
 
+QAQC_loggertype <- function(logger_type) {
+  
+  # Define accepted values (always lowercase)
+  valid_types <- c("u20", "u26", "tidbit")
+  
+  # Clean input, trim and put to lowercase
+  logger_type <- tolower(trimws(as.character(logger_type)))
+  
+  # Check validity
+  if (is.na(logger_type) || !logger_type %in% valid_types) {
+    stop(
+      "QC check failed: invalid 'logger_type' value: '", logger_type, "'.\n",
+      "Valid options are: ", paste(valid_types, collapse = ", ")
+    )
+  }
+  
+  # Return cleaned string (standardized case/spacing)
+  return(logger_type)
+}
 
 
-
-
+qc_measurement_type <- function(measurement_type) {
+  # Define accepted values (always lowercase)
+  valid_types <- c("waterlevel", "barometric", "conductivity", "dissolvedoxygen")
+  
+  # Handle input: if factor, convert to character; trim whitespace and lowercase
+  measurement_type <- tolower(trimws(as.character(measurement_type)))
+  
+  # Identify invalid or missing entries
+  bad_rows <- which(is.na(measurement_type) | !measurement_type %in% valid_types)
+  
+  # Stop if any invalid
+  if (length(bad_rows) > 0) {
+    stop(
+      "QC check failed: invalid 'measurement_type' value(s) found at index(es): ",
+      paste(bad_rows, collapse = ", "),
+      "\nValid options are: ",
+      paste(valid_types, collapse = ", ")
+    )
+  }
+  
+  return(measurement_type)
+}
 
 
 ## SUMMARIZE DATA FILES ####
@@ -107,70 +146,7 @@ extract_alldata_from_file <- function(file) {
            "data2_type" = dat2_type, 
            "dat2_unit" = dat2_unit)
 
-  
-  
   return(data)
 }
 
 
-# 
-# extract_data_from_file <- function(file) {
-#   data <- read.csv(file, header = FALSE, sep = ",", dec = ".",
-#                    stringsAsFactors = FALSE)
-#   
-#   
-#   # logger_info <- as.character(data[2,3])
-#   # dat1_type <- sub("\\,.*", "", logger_info) # extract everything before comma
-#   # dat1_unit <- sub("\\s*\\(.*", "", logger_info) # extract everything before the left bracket
-#   # dat1_unit <- sub(".*, ", "", dat1_unit) # extract everything after the comma
-#   # logger_sn <- regmatches(logger_info, regexpr("\\d{8}", logger_info)) # extract 8 digit serial number
-#   # 
-#   # dat2_info <- as.character(data[2,4])
-#   # dat2_type <- sub("\\,.*", "", dat2_info) # extract everything before comma
-#   # dat2_unit <- sub("\\s*\\(.*", "", dat2_info) # extract everything before the left bracket
-#   # dat2_unit <- sub(".*, ", "", dat2_unit) # extract everything after the comma
-#   
-#   # use serial number for data link
-#   # add as first column
-#   data$V1 <- logger_sn
-#   data <- data[-c(1:2),] # drop header rows
-#   data <- data[,c(1:4)] # drop empty columns
-#   
-#   # drop empty rows
-#   data$V3 <- as.numeric(data$V3)
-#   data <- data[complete.cases(data), ]
-#   
-#   #write new headers
-#   colnames(data) <- c("sn", "timestamp", paste(dat1_type,dat1_unit), paste(dat2_type, dat2_unit))
-#   
-#   return(data)
-# }
-# 
-# 
-# 
-# 
-# extract_data_from_file <- function(file){
-#   
-#   data <- read.csv(file, header = FALSE, sep = ",", dec = ".",
-#                    stringsAsFactors = FALSE)
-#   
-#   tz <- as.character(data[2,2]) # get timezone
-#   tz <- sub(".*(Date Time.*), ", "", tz)
-#   logger_info <- as.character(data[2,3])
-#   dat1_type <- sub("\\,.*", "", logger_info) # extract everything before comma
-#   dat1_unit <- sub("\\s*\\(.*", "", logger_info) # extract everything before the left bracket
-#   dat1_unit <- sub(".*, ", "", dat1_unit) # extract everything after the comma
-#   logger_sn <- regmatches(logger_info, regexpr("\\d{8}", logger_info)) # extract 8 digit serial number
-#   
-#   dat2_info <- as.character(data[2,4])
-#   dat2_type <- sub("\\,.*", "", dat2_info) # extract everything before comma
-#   dat2_unit <- sub("\\s*\\(.*", "", dat2_info) # extract everything before the left bracket
-#   dat2_unit <- sub(".*, ", "", dat2_unit) # extract everything after the comma
-#   
-#   file_name <- sub(".*/", "", file, perl = T) # get file name
-#   
-#   
-#   file_summary <- data.frame(t(c(file_name, logger_sn, tz, dat1_type, dat1_unit, dat2_type, dat2_unit)))
-#   colnames(file_summary) <- c("file_name", "sn", "timezone", "data1_type", "data1_unit", "data2_type", "data2_unit")
-#   
-# }
