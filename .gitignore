@@ -2,3 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
+data/testing/processed/*
+data/deadwood/processed/*
+data/deadwood/raw/baro/*
+data/deadwood/raw/level/*
+data/testing/raw/baro/*
+data/testing/raw/level/*
+data/testing/raw/level_broken/*
+data/testing/raw/baro_broken/*

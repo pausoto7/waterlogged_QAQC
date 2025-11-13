@@ -9,9 +9,13 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   # QAQC and format metadata file
   metadata <- QAQC_metadata(metadata_path)
   
-  file_names <- list.files(path = path_to_raw_folder, pattern = "\\.csv$") # extract file names ending in csv
-  path_to_files <- paste0(path_to_raw_folder, file_names) # makes string of full file path for all csv files
+  path_to_files <- list.files(
+    path    = path_to_raw_folder,
+    pattern = "\\.csv$",
+    full.names = TRUE
+  )
   
+  # extract data from hobo file(s)
   hobo_data_raw <- purrr::map_df(path_to_files, extract_alldata_from_file)
   
 
@@ -26,7 +30,6 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     warning("Some files are in different timezones (refer to 'file_summary').")
   }
   
-  ## TIMESTAMPS ####
   # format timestamp
   # NOTE: all times are in PDT (setting timezone to UTC tricks R to ignore daylight savings time)
   hobo_data_raw$timestamp <- lubridate::mdy_hms(hobo_data_raw$timestamp)
@@ -40,7 +43,9 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
 
   if(any(is.na(metadata$timestamp_deploy))) {
-    missing_ts <- hobo_data_raw %>% filter(is.na(timestamp_deploy))
+    missing_ts <- metadata %>% 
+      dplyr::filter(is.na(timestamp_deploy))
+    
     missing_ts_sn <- unique(missing_ts$sn)
     
     warning(paste("NAs produced in timestamp_deploy for logger SN:",missing_ts_sn,". Make sure the timestamp column in csv is formatted the same as the input data and is noted correctly in timestamp_format. Correct and try again."))
@@ -48,6 +53,15 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   # link sn to site_station_code in metadata
   metadat_link <- metadata %>% filter(sn %in% unique(hobo_data_raw$sn))
+  
+  measurement_type <- unique(metadat_link$metric)
+  
+  # make sure it's only one type per folder
+  if (length(measurement_type) != 1) {
+    stop("Multiple metric types found for these loggers: ",
+         paste(measurement_type, collapse = ", "),
+         "\nMake sure your input folder only contains one metric type (e.g., all barometric or all waterlevel).")
+  }
   
   # make dummy columns and datasets to fill in
   hobo_data_raw$site_station_code <- NA
@@ -96,24 +110,29 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   # order by site and timestamp
   sites_compiled<- sites_compiled[order(sites_compiled$site_station_code, sites_compiled$timestamp), ]
   
-  measurement_type_raw <- unique(metadat_link$metric)
-  
-  
-  #QAQC
-  measurement_type <- qc_measurement_type(measurement_type_raw)
-  
-  
+
   
   #####
   # NEED TO ADD CODE FOR TIDBIT QAQC STILL, ALSO WHAT HAPPENS IF USER HAS MORE THAN 1 LOGGER TYPE?
   #####
   
-  logger_type <- unique(metadata$model)
+  logger_type <- unique(metadat_link$model)
+  if (length(logger_type) != 1) {
+    warning("Multiple logger models found for these files: ",
+            paste(logger_type, collapse = ", "),
+            ". Using first.")
+  }
+  logger_type <- logger_type[[1]] 
+  
   
   # mutate a column for logger type and metric  
   sites_compiled <- sites_compiled %>%
     mutate(logger_type = logger_type, 
            metric = measurement_type)
+  
+  
+  # setting this sa default. That way if logger_header is not assigned in anything below we can create an error.
+  logger_header <- NA_character_  # default
   
   
   # change column names to remove spaces and symbols for data processing
@@ -154,6 +173,10 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     
   }
   
+  # If logger_header is not succesfully reassigned above
+  if (is.na(logger_header)) {
+    stop("Could not determine logger_header from column names and measurement_type.")
+  }
   
   #### EXPORT CSV BY LOGGER TYPE LOCATION AND YEAR
   # some stations may have multiple logger files, one from a download in spring and another for a download in fall
@@ -206,19 +229,34 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   print("List returned: [1] trimmed and compiled dataset of csvs in raw folder \n [2] summary plots of data by site_station_code and timestamp")
   
-  ## Graph Raw Data ####
-  sites_compiled[,3] <- as.numeric(sites_compiled[,3])
-  sites_compiled[,4] <- as.numeric(sites_compiled[,4])
+  # Make sure the numeric columns are actually numeric
+  sites_compiled <- sites_compiled %>%
+    dplyr::mutate(
+      dplyr::across(3:4, as.numeric)
+    )
   
-  multi_plots <- ggplot(data=sites_compiled, aes(x = sites_compiled[,2], y = sites_compiled[,3])) +
-    geom_line(linewidth = 1)+
-    facet_wrap(~site_station_code, scales = "free")+
-    theme_classic()+
-    theme(axis.text.x = element_text(angle = 90))+
-    scale_x_datetime(date_labels = "%y-%m")+
-    labs(x = "Timestamp (YY-MM)", y = colnames(sites_compiled[3]))
+  # Grab the names explicitly instead of relying on position
+  time_col  <- names(sites_compiled)[2]
+  value_col <- names(sites_compiled)[3]
   
+  multi_plots <- ggplot(
+    data = sites_compiled,
+    aes(x = .data[[time_col]], y = .data[[value_col]])
+  ) +
+    geom_line(linewidth = 1) +
+    facet_wrap(~ site_station_code, scales = "free") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    scale_x_datetime(date_labels = "%y-%m") +
+    labs(
+      x = "Timestamp (YY-MM)",
+      y = value_col
+    )
   
-  return(list(sites_compiled, multi_plots))
-} # end of function
+  return(list(
+    sites_compiled, 
+    multi_plots
+    ))
+  
+} 
 

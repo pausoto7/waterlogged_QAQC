@@ -1,40 +1,29 @@
 #step 2
 
-baro_bound <- bind_hobo_files(path_to_raw_folder = "data/deadwood/raw/baro", 
-                              path_to_output_folder = "data/deadwood/processed", 
-                              logger_type = "U20", 
-                              metadata_path = "data/deadwood/raw/deadwood_metadata.csv")
+baro_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/baro", 
+                              path_to_output_folder = "data/testing/processed", 
+                              metadata_path = "data/testing/raw/testing_metadata.csv")
 
-level_bound <- bind_hobo_files(path_to_raw_folder = "data/deadwood/raw/level", 
-                              path_to_output_folder = "data/deadwood/processed", 
-                              logger_type = "U20", 
-                              metadata_path = "data/deadwood/raw/deadwood_metadata.csv")
+level_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/level", 
+                              path_to_output_folder = "data/testing/processed", 
+                              metadata_path = "data/testing/raw/testing_metadata.csv")
 
 
 input_data = level_bound[[1]]
-input_logger_type = "u20"
-path_to_output_folder = "data/deadwood/processed"
+path_to_output_folder = "data/testing/processed"
 baro_data = baro_bound[[1]]
-
-
-
-test <- read.csv("data/deadwood/processed/2025/processed/DWD_WL_20250128_20250703_v0.1.csv")
-
-metadata <- read.csv("data/deadwood/raw/deadwood_metadata.csv")
 
 max_km <- 30
 
-baro_data_path <- "data/deadwood/processed/2025/processed"
+baro_data_path <- "data/testing/processed/2025/processed"
 
 source("R/step2_utils.R")
 
 
 
 
-add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folder, baro_data_path,
+add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
                              baro_site_selection = "auto",
-                             #var_airpress_kPa = "airpress_kPa_U20", 
-                             #var_airtemp_C = "airtemp_C_U20",
                              metadata){
   
   # we can't assume the user is inputting the df straight from the previous frame, so change timestamp to datetime format
@@ -48,6 +37,7 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
   }
 
   
+  # manually choose baro site to attach logger to
   if (baro_site_selection != "auto"){
     
     baro_site = metadata %>%

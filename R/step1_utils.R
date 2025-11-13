@@ -16,7 +16,9 @@ QAQC_metadata <- function(metadata_path) {
     metadata <- metadata[rowSums(is.na(metadata) | metadata == "") != ncol(metadata), ]
     
     # 3) Required columns present?
-    required_cols <- c("site_station_code", "timestamp_deploy", "timestamp_remove")
+    required_cols <- c("site_station_code", "timestamp_deploy", "timestamp_remove", 
+                       "model", "sn", "metric", "status", "latitude", "longitude")
+    
     missing_cols  <- setdiff(required_cols, names(metadata))
     if (length(missing_cols)) {
       stop("Missing required column(s): ", paste(missing_cols, collapse = ", "))
@@ -66,6 +68,7 @@ QAQC_metadata <- function(metadata_path) {
       warning("Latitude/longitude column(s) missing in metadata (expected 'latitude' and 'longitude').")
     } else {
       # coerce to character, trim, then numeric; warn on DMS-like patterns
+
       lat_chr <- trimws(as.character(metadata$latitude))
       lon_chr <- trimws(as.character(metadata$longitude))
       
@@ -102,36 +105,57 @@ QAQC_metadata <- function(metadata_path) {
       if (length(bad_lon)) warning("Longitude out of range [-180, 180] on row(s): ", paste(bad_lon, collapse = ", "))
     }
     
-    metadata
+    # 8) Metric / measurement_type QAQC (folded-in qc_measurement_type)
+    valid_metrics = c("waterlevel", "barometric", "conductivity", "dissolvedoxygen")
     
+    metric_raw <- metadata$metric
+    metric_std <- gsub(" ", "", tolower(as.character(metric_raw)))
+    
+    bad_metric_rows <- which(is.na(metric_std) | !metric_std %in% valid_metrics)
+    
+    
+    if (length(bad_metric_rows) > 0) {
+      stop(
+        "QC check failed: invalid 'metric' value(s) on row(s): ",
+        paste(bad_metric_rows, collapse = ", "),
+        "\nValid options are: ",
+        paste(valid_metrics, collapse = ", ")
+      )
+    }
+    
+    # Overwrite with standardized metric names (lowercase, no spaces)
+    metadata$metric <- metric_std
+    
+    metadata
+
   }, error = function(e) {
     stop("Error reading/parsing metadata: ", e$message)
   })
 }
 
 
-qc_measurement_type <- function(measurement_type) {
-  # Define accepted values (always lowercase)
-  valid_types <- c("waterlevel", "barometric", "conductivity", "dissolvedoxygen")
-  
-  # Handle input: if factor, convert to character; trim whitespace and lowercase
-  measurement_type <- tolower(trimws(as.character(measurement_type)))
-  
-  # Identify invalid or missing entries
-  bad_rows <- which(is.na(measurement_type) | !measurement_type %in% valid_types)
-  
-  # Stop if any invalid
-  if (length(bad_rows) > 0) {
-    stop(
-      "QC check failed: invalid 'measurement_type' value(s) found at index(es): ",
-      paste(bad_rows, collapse = ", "),
-      "\nValid options are: ",
-      paste(valid_types, collapse = ", ")
-    )
-  }
-  
-  return(measurement_type)
-}
+# qc_measurement_type <- function(measurement_type) {
+#   # Define accepted values (always lowercase)
+#   valid_types <- c("waterlevel", "barometric", "conductivity", "dissolvedoxygen")
+#   
+#   # Handle input: if factor, convert to character; trim whitespace and lowercase
+#   measurement_type <- tolower(trimws(as.character(measurement_type)))
+#   
+#   # Identify invalid or missing entries
+#   bad_rows <- which(is.na(measurement_type) | !measurement_type %in% valid_types)
+#   
+#   # Stop if any invalid
+#   if (length(bad_rows) > 0) {
+#     stop(
+#       "QC check failed: invalid 'measurement_type' value(s) found at index(es): ",
+#       paste(bad_rows, collapse = ", "),
+#       "\nValid options are: ",
+#       paste(valid_types, collapse = ", ")
+#     )
+#   }
+#   
+#   return(measurement_type)
+# }
 
 
 ## SUMMARIZE DATA FILES ####
