@@ -26,6 +26,11 @@ max_km <- 30
 
 baro_data_path <- "data/deadwood/processed/2025/processed"
 
+source("R/step2_utils.R")
+
+
+
+
 add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folder, baro_data_path,
                              baro_site_selection = "auto",
                              #var_airpress_kPa = "airpress_kPa_U20", 
@@ -179,7 +184,7 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
     
     # Make column names unambiguous, then do a Cartesian pairing
     site_coords <- metadata %>% 
-      filter(metric == unique(input_data$metric)) %>%
+      filter(metric %in% unique(input_data$metric)) %>%   
       select(site_code = site_station_code, latitude, longitude) %>%
       distinct()
     
@@ -213,7 +218,7 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
       file_path <- list.files(baro_data_path, pattern = baro_pattern, full.names = TRUE, recursive = TRUE)
       
       if (!length(file_path)) {
-        warning("No BARO files found for ", baro_stn)
+        warning("No baro files found for ", baro_stn)
         next
       }
       # bind and then read any csv's that are relevant 
@@ -246,15 +251,17 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
       baro_temp_list[[baro_stn]]  <- temp_clean
     }
     
+    if (!length(baro_press_list)) stop("No usable barometric files found under: ", baro_data_path)
+    if (!length(baro_temp_list))  stop("No usable barometric temperature files found under: ", baro_data_path)
     
+
     wide_press <- purrr::reduce(baro_press_list, full_join, by = "timestamp") %>% arrange(timestamp)
     wide_temp  <- purrr::reduce(baro_temp_list,  full_join, by = "timestamp") %>% arrange(timestamp)
-    
     
 
     # The baro columns should be the 2nd–4th columns of wide_baro_df (after timestamp) in order of relevance 
     baro_cols <- setdiff(names(wide_press), "timestamp")
-    if (length(baro_cols) == 0) stop("No baro columns in wide_baro_df")
+    if (length(baro_cols) == 0) stop("No baro columns in wide_press")
     
     
     ref_col   <- baro_cols[1]
@@ -280,10 +287,41 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
     # #####
     ### This section needs to be qaqc'd more comprehensively with real data
     ### 
-    # Build the coalesce order: ref first, then adjusted alts (if present)
-    use_cols <- c(ref_col, paste0(alt_cols, "_adj"))
-    use_syms <- syms(intersect(use_cols, names(wide_press)))  # guard if fewer than 3
     
+    
+    # ref_col: single string; alt_cols: character vector or NULL
+    # wide_press: your data.frame
+    
+    # 1) Normalize alt_cols safely
+    alt_cols_chr <- if (is.null(alt_cols)) character(0) else as.character(alt_cols)
+    alt_cols_chr <- trimws(alt_cols_chr)
+    
+    # Drop NA/empty after trim
+    alt_cols_norm <- alt_cols_chr[ nzchar(alt_cols_chr) & !is.na(alt_cols_chr) ]
+    alt_cols_norm <- unique(alt_cols_norm)
+    
+    # 2) Allow inputs already ending in "_adj"; unify to base names
+    base_alts <- ifelse(grepl("_adj$", alt_cols_norm), sub("_adj$", "", alt_cols_norm), alt_cols_norm)
+    
+    # 3) Build requested adjusted columns and keep only those present
+    requested_alt_adj <- paste0(base_alts, "_adj")
+    alt_adj_cols_present <- intersect(requested_alt_adj, names(wide_press))
+    
+    # 4) Final coalescing order: ref first, then existing alts
+    use_cols <- unique(c(ref_col, alt_adj_cols_present))
+    use_syms <- rlang::syms(use_cols)
+    
+    # 5) Optional, targeted warnings
+    missing_alt_adj <- setdiff(requested_alt_adj, names(wide_press))
+    if (length(base_alts) > 0 && length(missing_alt_adj) > 0) {
+      warning("Missing alternate columns in wide_press: ", paste(missing_alt_adj, collapse = ", "))
+    }
+    
+    # # (Optional) sanity check for ref_col too
+    # if (!ref_col %in% names(wide_press)) {
+    #   warning("ref_col not found in wide_press: ", ref_col)
+    # }
+    # 
     wide_baro_df <- wide_press %>%
       dplyr::mutate(
         baro_data = dplyr::coalesce(!!!use_syms),
@@ -310,14 +348,24 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
       )
     
     
-    wide_baro_df <- wide_press %>%
+    wide_baro_df <- wide_baro_df  %>%
       dplyr::left_join(baro_temp_df, by = "timestamp")
     
     # warn if any pressure still missing
-    missing_pct <- round(mean(is.na(wide_baro_df$baro_data)) * 100, 1)
-    if (missing_pct > 0) {
-      warning(sprintf("Baro data missing for %.1f%% of timestamps.", missing_pct))
+
+    pct_missing <- function(x) {
+      if (is.null(x)) return(NA_real_)
+      n <- length(x)
+      if (n == 0) return(NA_real_)
+      round(mean(is.na(x)) * 100, 1)
     }
+    
+    pct <- if ("baro_data" %in% names(wide_baro_df)) pct_missing(wide_baro_df$baro_data) else NA_real_
+    
+    if (!is.na(pct) && pct > 0) {
+      warning(sprintf("Baro data missing for %.1f%% of timestamps.", pct))
+    }
+    
     
     # usage summary
     baro_usage_summary <- wide_baro_df %>%
@@ -338,42 +386,6 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
     ###
     # ADD LATER CODE TO INFILL HOLES?
     ###
-    
-    
-    find_na_runs <- function(df, value_col = "baro_data", add_step = TRUE) {
-      stopifnot("timestamp" %in% names(df))
-      vcol <- rlang::sym(value_col)
-      
-      # ensure ordered
-      df <- df %>% arrange(timestamp)
-      
-      # estimate native step (for regular series)
-      dt <- suppressWarnings(median(diff(df$timestamp), na.rm = TRUE))
-      add_dt <- if (add_step && is.finite(as.numeric(dt))) dt else as.difftime(0, units = "secs")
-      
-      # logical NA vector
-      is_na <- is.na(df[[value_col]])
-      
-      if (!any(is_na)) {
-        return(tibble(
-          gap_id = integer(), gap_start = as.POSIXct(character()), gap_end = as.POSIXct(character()),
-          n_missing = integer(), duration = difftime(character(), character())
-        ))
-      }
-      
-      # start = NA now & (previous non-NA or row 1)
-      starts <- which(is_na & !dplyr::lag(is_na, default = FALSE))
-      # end   = NA now & (next non-NA or last row)
-      ends   <- which(is_na & !dplyr::lead(is_na, default = FALSE))
-      
-      tibble(
-        gap_id    = seq_along(starts),
-        gap_start = df$timestamp[starts],
-        gap_end   = df$timestamp[ends],
-        n_missing = ends - starts + 1
-      ) %>%
-        mutate(duration = (gap_end - gap_start) + add_dt)
-    }
     
     
     na_gaps <- find_na_runs(wide_baro_df, value_col = "baro_data")
@@ -427,6 +439,7 @@ add_nearest_baro <- function(input_data, input_logger_type, path_to_output_folde
     }
     
   }
+  
   
   qc_plot <- ggplot2::ggplot(wide_baro_df, ggplot2::aes(x = timestamp, y = baro_data)) +
     ggplot2::geom_line(linewidth = 0.7) +
