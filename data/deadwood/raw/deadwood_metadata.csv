@@ -1,0 +1,5 @@
+site_station_code,timestamp_deploy,timestamp_remove,model,sn,metric,status,latitude,longitude
+DWD,4/30/2025 13:45,7/3/2025 9:45,HOBO_U20,21521606,barometric,logging,49.09898611,124.1301111
+DWD,1/28/2025 14:15,4/30/2025 12:00,HOBO_U20,21521606,barometric,logging,49.09898611,124.1301111
+DWD,4/30/2025 13:45,7/3/2025 9:45,HOBO_U20,21367987,waterlevel,logging,49.09898611,124.1301111
+DWD,1/28/2025 14:15,4/30/2025 12:00,HOBO_U20,21367987,waterlevel,logging,49.09898611,124.1301111
