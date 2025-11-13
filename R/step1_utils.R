@@ -1,6 +1,7 @@
 #Bind_hobo_utils
 
 # READ METADATA FILE, CONVERT datetime to correct format, check that removal is after deployment
+# READ METADATA FILE, CONVERT datetime to correct format, check that removal is after deployment
 QAQC_metadata <- function(metadata_path) {
   tryCatch({
     # 1) File check
@@ -10,20 +11,22 @@ QAQC_metadata <- function(metadata_path) {
     
     # 2) Read CSV (quietly, no factors)
     metadata <- read.csv(metadata_path, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-
+    
+    # Remove completely empty rows (all NA or all blank strings)
+    metadata <- metadata[rowSums(is.na(metadata) | metadata == "") != ncol(metadata), ]
+    
     # 3) Required columns present?
     required_cols <- c("site_station_code", "timestamp_deploy", "timestamp_remove")
     missing_cols  <- setdiff(required_cols, names(metadata))
     if (length(missing_cols)) {
       stop("Missing required column(s): ", paste(missing_cols, collapse = ", "))
     }
+    
     # 4) Parse timestamps (expect mdy_hm; auto-UTC)
     parse_dt <- function(x) {
       x_chr <- as.character(x)
       p1 <- try(lubridate::mdy_hm(x_chr, tz = "UTC"), silent = TRUE)
       if (!inherits(p1, "try-error") && !all(is.na(p1))) return(p1)
-      
-      # fallback to common variants
       p2 <- suppressWarnings(
         lubridate::parse_date_time(
           x_chr,
@@ -36,20 +39,67 @@ QAQC_metadata <- function(metadata_path) {
       }
       p2
     }
-    
     metadata$timestamp_deploy <- parse_dt(metadata$timestamp_deploy)
     metadata$timestamp_remove <- parse_dt(metadata$timestamp_remove)
     
-    # 5) sanity checks (fail hard)
+    # 4b) Warn if any timestamps are NA after parsing
+    na_deploy <- which(is.na(metadata$timestamp_deploy))
+    na_remove <- which(is.na(metadata$timestamp_remove))
+    if (length(na_deploy)) warning("Missing/invalid 'timestamp_deploy' on row(s): ", paste(na_deploy, collapse = ", "))
+    if (length(na_remove)) warning("Missing/invalid 'timestamp_remove' on row(s): ", paste(na_remove, collapse = ", "))
+    
+    # 5) sanity checks (fail hard if deploy > remove)
     if (any(metadata$timestamp_deploy > metadata$timestamp_remove, na.rm = TRUE)) {
       bad_rows <- which(metadata$timestamp_deploy > metadata$timestamp_remove)
-      stop("Deploy time is after remove time on row(s): ",
-           paste(bad_rows, collapse = ", "))
+      stop("Deploy time is after remove time on row(s): ", paste(bad_rows, collapse = ", "))
     }
     
-    # 6) Light type hygiene (common with logger data)
+    # 6) Light type hygiene
     if ("sn" %in% names(metadata)) {
       metadata$sn <- as.character(metadata$sn)  # preserve leading zeros if any
+    }
+    
+    # 7) Latitude / Longitude QAQC (decimal degrees expected)
+    has_lat <- "latitude"  %in% names(metadata)
+    has_lon <- "longitude" %in% names(metadata)
+    if (!has_lat || !has_lon) {
+      warning("Latitude/longitude column(s) missing in metadata (expected 'latitude' and 'longitude').")
+    } else {
+      # coerce to character, trim, then numeric; warn on DMS-like patterns
+      lat_chr <- trimws(as.character(metadata$latitude))
+      lon_chr <- trimws(as.character(metadata$longitude))
+      
+      # Looks like DMS or contains N/S/E/W or degree symbols?
+      looks_non_decimal <- function(x) grepl("[NSEW°'\"\u00B0]", x, ignore.case = TRUE)
+      bad_fmt_rows <- which((!is.na(lat_chr) & looks_non_decimal(lat_chr)) |
+                              (!is.na(lon_chr) & looks_non_decimal(lon_chr)))
+      if (length(bad_fmt_rows)) {
+        warning("Lat/long values appear non-decimal (DMS or N/S/E/W) on row(s): ",
+                paste(bad_fmt_rows, collapse = ", "),
+                ". Expected decimal degrees (e.g., 49.1234, -123.4567).")
+      }
+      
+      # Coerce to numeric (non-numeric -> NA)
+      metadata$latitude  <- suppressWarnings(as.numeric(lat_chr))
+      metadata$longitude <- suppressWarnings(as.numeric(lon_chr))
+      
+      # Missingness warnings
+      miss_lat <- which(is.na(metadata$latitude))
+      miss_lon <- which(is.na(metadata$longitude))
+      if (length(miss_lat)) warning("Missing latitude (decimal degrees) on row(s): ", paste(miss_lat, collapse = ", "))
+      if (length(miss_lon)) warning("Missing longitude (decimal degrees) on row(s): ", paste(miss_lon, collapse = ", "))
+      
+      # Only-one-missing per row
+      one_missing <- which(xor(is.na(metadata$latitude), is.na(metadata$longitude)))
+      if (length(one_missing)) {
+        warning("Only one of latitude/longitude supplied on row(s): ", paste(one_missing, collapse = ", "))
+      }
+      
+      # Range checks
+      bad_lat <- which(!is.na(metadata$latitude)  & (metadata$latitude  < -90  | metadata$latitude  > 90))
+      bad_lon <- which(!is.na(metadata$longitude) & (metadata$longitude < -180 | metadata$longitude > 180))
+      if (length(bad_lat)) warning("Latitude out of range [-90, 90] on row(s): ", paste(bad_lat, collapse = ", "))
+      if (length(bad_lon)) warning("Longitude out of range [-180, 180] on row(s): ", paste(bad_lon, collapse = ", "))
     }
     
     metadata
@@ -57,26 +107,6 @@ QAQC_metadata <- function(metadata_path) {
   }, error = function(e) {
     stop("Error reading/parsing metadata: ", e$message)
   })
-}
-
-QAQC_loggertype <- function(logger_type) {
-  
-  # Define accepted values (always lowercase)
-  valid_types <- c("u20", "u26", "tidbit")
-  
-  # Clean input, trim and put to lowercase
-  logger_type <- tolower(trimws(as.character(logger_type)))
-  
-  # Check validity
-  if (is.na(logger_type) || !logger_type %in% valid_types) {
-    stop(
-      "QC check failed: invalid 'logger_type' value: '", logger_type, "'.\n",
-      "Valid options are: ", paste(valid_types, collapse = ", ")
-    )
-  }
-  
-  # Return cleaned string (standardized case/spacing)
-  return(logger_type)
 }
 
 

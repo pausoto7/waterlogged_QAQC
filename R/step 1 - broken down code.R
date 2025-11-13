@@ -1,45 +1,17 @@
-# 
-# 
-# # to run this example using our data, you can access raw hobo files here:
-# metadata_path <- "data/deadwood/raw/deadwood_metadata.csv"
-# 
-# 
-# 
-# path_to_raw_folder <- "data/deadwood/raw/baro"
-# 
-# 
-# path_to_output_folder <- "data/deadwood/processed"  #from this folder (ie. "data/baro/2024/raw" or simply the Desktop of your local computer), bind_hobo_files will look for a year folder corresponding to your logger data, and if one isn't made, it will create a new year folder and a "processed" folder to store your processed data (ie. "data/baro/2024/processed")
-# 
-# 
-# 
-# 
-# timestamp_timezone = "UTC"
+
 library(tidyverse)
 
 
 source("R/step1_utils.R")
 
-bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_type, metadata_path,  timestamp_timezone = "UTC") {
+bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_path,  timestamp_timezone = "UTC") {
   
   # QAQC and format metadata file
   metadata <- QAQC_metadata(metadata_path)
   
-  logger_type <- QAQC_loggertype(logger_type)
-  
-  ## GET DATA FROM HOBO CSV FILES####
-  #make sure all paths have trailing slash
-  if (!endsWith(path_to_raw_folder, "/")) {
-    path_to_raw_folder <- paste0(path_to_raw_folder, "/")
-  }
-  if (!endsWith(path_to_output_folder, "/")) {
-    path_to_output_folder <- paste0(path_to_output_folder, "/")
-  }
-  
   file_names <- list.files(path = path_to_raw_folder, pattern = "\\.csv$") # extract file names ending in csv
   path_to_files <- paste0(path_to_raw_folder, file_names) # makes string of full file path for all csv files
   
-  
-
   hobo_data_raw <- purrr::map_df(path_to_files, extract_alldata_from_file)
   
 
@@ -66,8 +38,6 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
     warning(paste("NAs produced in timestamp for logger SN:",missing_ts_sn,". Make sure the timestamp column in csv is formatted as mm/dd/yy HH:MM:SS AM/PM (%m/%d/%y %I:%M:%S %p). Correct and try again."))
   }
   
-  # LABEL AND TRIM ####
-  ## Loop to link site_station_code to logger data by serial number and trim data by install and retrieval dates in metadata
 
   if(any(is.na(metadata$timestamp_deploy))) {
     missing_ts <- hobo_data_raw %>% filter(is.na(timestamp_deploy))
@@ -135,9 +105,10 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
   
   
   #####
-  # NEED TO ADD CODE FOR TIDBIT QAQC STILL
+  # NEED TO ADD CODE FOR TIDBIT QAQC STILL, ALSO WHAT HAPPENS IF USER HAS MORE THAN 1 LOGGER TYPE?
   #####
   
+  logger_type <- unique(metadata$model)
   
   # mutate a column for logger type and metric  
   sites_compiled <- sites_compiled %>%
@@ -188,8 +159,6 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
   # some stations may have multiple logger files, one from a download in spring and another for a download in fall
   # this loop will split data by type, location and year for ease of access and processing
   
-  
-  
   for(i in 1:length(unique(sites_compiled$site_station_code))) {
     
     site_i <- unique(sites_compiled$site_station_code)[i]
@@ -198,37 +167,44 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, logger_ty
     # split by year
     years_i <- unique(lubridate::year(site_dat$timestamp))
     
-    for(j in 1:length(years_i)){
+    for (j in seq_along(years_i)) {
       year_j <- years_i[j]
-      site_year_j <- site_dat %>% filter(lubridate::year(timestamp)==year_j)
       
-      #name by timestamp range
-      start_j <- as.character(min(lubridate::date(site_year_j$timestamp)))
-      start_j <- gsub("\\D", "", start_j)
-      end_j <- as.character(max(lubridate::date(site_year_j$timestamp)))
-      end_j <- gsub("\\D", "", end_j)
+      site_year_j <- site_dat %>% 
+        dplyr::filter(lubridate::year(timestamp) == year_j)
       
-      # search for year folder, if does not exist, write new one
-      # if(!dir.exists(paste0(path_to_output_folder, year_j))){dir.create(paste0(path_to_output_folder, year_j))}
-      if(!dir.exists(paste0(path_to_output_folder, year_j))){dir.create(paste0(path_to_output_folder, year_j))}
-      if(!dir.exists(paste0(path_to_output_folder, year_j,"/processed/"))){dir.create(paste0(path_to_output_folder, year_j,"/processed/"))}
+      # skip if no data for this year
+      if (!nrow(site_year_j)) next
       
+      # name by timestamp range
+      start_j <- gsub("\\D", "", as.character(min(lubridate::date(site_year_j$timestamp))))
+      end_j   <- gsub("\\D", "", as.character(max(lubridate::date(site_year_j$timestamp))))
       
-      # write csv for each year and site_station_code
+      # create paths for output folders
+      year_dir <- file.path(path_to_output_folder, year_j)
+      proc_dir <- file.path(year_dir, "processed")
       
-      # correct missing midnight timestamps
-      site_year_j$timestamp <- as.character(format(site_year_j$timestamp))
+      # Create them recursively (no warnings if they already exist)
+      dir.create(year_dir, recursive = TRUE, showWarnings = FALSE)
+      dir.create(proc_dir, recursive = TRUE, showWarnings = FALSE)
       
-      # write_csv(site_year_j, paste0(path_to_output_folder, year_j,"/", site_i,"_",logger_header,"_", start_j,"_", end_j, "_v0.1", ".csv"))
-      write.csv(site_year_j, paste0(path_to_output_folder, year_j,"/processed/", site_i,"_",logger_header,"_", start_j,"_", end_j, "_v0.1", ".csv"), row.names = FALSE)
+      # correct missing midnight timestamps & put into character so no formatting issues arise when in Excel
+      site_year_j$timestamp <- format(site_year_j$timestamp, "%Y-%m-%d %H:%M:%S")
       
-      print(paste("Data (v0.1) from",site_i,"added to", year_j, "folder"))
+      # build output path using file.path for consistency
+      out_file <- sprintf("%s_%s_%s_%s_v0.1.csv", site_i, logger_header, start_j, end_j)
+      out_path <- file.path(proc_dir, out_file)
+      
+      utils::write.csv(site_year_j, out_path, row.names = FALSE)
+      
+      message(sprintf("Data (v0.1) from %s added to %s/processed", site_i, year_j))
+      
       
     } #end of year level loop
     
   } # end of site level loop
   
-  print("List returned: [1] trimmed and compiled dataset of csvs in raw folder [2] file summary of csvs in raw folder [3] summary plots of data by site_station_code and timestamp")
+  print("List returned: [1] trimmed and compiled dataset of csvs in raw folder \n [2] summary plots of data by site_station_code and timestamp")
   
   ## Graph Raw Data ####
   sites_compiled[,3] <- as.numeric(sites_compiled[,3])
