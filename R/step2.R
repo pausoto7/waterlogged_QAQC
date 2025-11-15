@@ -11,15 +11,12 @@ level_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/level",
 
 input_data = level_bound[[1]]
 path_to_output_folder = "data/testing/processed"
-#baro_data = baro_bound[[1]]
 
 max_km <- 30
 
 baro_data_path <- "data/testing/processed"
 
 source("R/step2_utils.R")
-
-
 
 
 add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
