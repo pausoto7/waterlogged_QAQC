@@ -388,9 +388,9 @@ add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
 } # end of function
 
 
-nearest_baro <- add_nearest_baro(input_data, path_to_output_folder, baro_data_path,
-                             baro_site_selection = "auto",
-                             metadata_path)
-
+# nearest_baro <- add_nearest_baro(input_data, path_to_output_folder, baro_data_path,
+#                              baro_site_selection = "auto",
+#                              metadata_path)
+# 
 
 

@@ -40,7 +40,7 @@ calibrate_baro_series <- function(wide_press,
                                   min_overlap = 20L) {
   
   
-  #alt_cols <- setdiff(baro_cols, ref_col)
+  alt_cols <- setdiff(baro_cols, ref_col)
   
   # Container for regression diagnostics
   reg_summary <- vector("list", length(alt_cols))

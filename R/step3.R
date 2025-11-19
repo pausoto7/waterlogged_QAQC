@@ -18,6 +18,32 @@
 #'   wl_plot   = interactive (plotly) QAQC plot
 #' )
 #' @export
+#' 
+#' 
+#' 
+#' 
+
+
+
+input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
+                             path_to_output_folder = "data/testing/processed", 
+                             baro_data_path = "data/testing/processed",
+                             baro_site_selection = "auto",
+                             metadata_path)
+
+
+
+converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[1],
+                                     select_station = "WL_ALBR_ST_30",
+                                     reference_data,
+                                     reference_type = "stage",
+                                     select_measurement = 1,
+                                     logger_type_expected = "u20",
+                                     path_to_output_folder) 
+
+
+
+ 
 convert_waterlevel_kPa_m <- function(input_data,
                                      select_station,
                                      reference_data,
