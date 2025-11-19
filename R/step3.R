@@ -3,7 +3,7 @@
 #' @param input_data Dataframe containing timeseries of raw water level and baro:
 #'   required cols: site_station_code, timestamp, waterpress_kPa, watertemp_C, baro_data
 #' @param select_station Character; site_station_code to process
-#' @param reference_data Dataframe of manual measurements with at least:
+#' @param reference_data_path Path of csv with manual measurements with at least:
 #'   site_station_code, and either
 #'   - stage_timestamp & stage_m   (if reference_type = "stage"), or
 #'   - depth_timestamp & depth_m   (if reference_type = "depth").
@@ -35,7 +35,7 @@ input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
 
 converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[1],
                                      select_station = "WL_ALBR_ST_30",
-                                     reference_data,
+                                     reference_data = "data/testing/raw/NT_manual_waterlevel_20251119.csv",
                                      reference_type = "stage",
                                      select_measurement = 1,
                                      logger_type_expected = "u20",
@@ -51,6 +51,8 @@ convert_waterlevel_kPa_m <- function(input_data,
                                      select_measurement = 1,
                                      logger_type_expected = "u20",
                                      path_to_output_folder) {
+  #QAQC Reference data
+  reference_data <- QAQC_reference_data(reference_data)
   
   # Make sure path_to_output_folder has trailing slash
   if (!endsWith(path_to_output_folder, "/")) {

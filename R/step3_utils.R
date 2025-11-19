@@ -106,3 +106,170 @@ QAQC_wl_kpa_inputs <- function(input_data,
   
   return(input_data)
 }
+
+
+
+
+#' QA/QC for manual stage/depth reference data
+#'
+#' Reads and validates a CSV of manual water-level measurements
+#' (stage or depth) used as reference levels for barometric
+#' compensation.
+#'
+#' Expected core columns (in addition to others you may have):
+#'   - site_station_code
+#'   - timestamp          (date-time of reference reading)
+#'   - site_comments
+#'   - stage_m and/or depth_m
+#'
+#' @param ref_path Path to the reference CSV file.
+#'
+#' @return A cleaned data.frame with parsed timestamp and numeric
+#'         stage/depth columns.
+#' @export
+QAQC_reference_data <- function(ref_path) {
+  tryCatch({
+    ## 1) File exists? ----
+    if (!file.exists(ref_path)) {
+      stop("Reference file not found: ", ref_path)
+    }
+    
+    ## 2) Read CSV ----
+    ref <- read.csv(
+      ref_path,
+      header           = TRUE,
+      stringsAsFactors = FALSE,
+      check.names      = FALSE
+    )
+    
+    ## 3) Drop completely empty rows ----
+    ref <- ref[rowSums(is.na(ref) | ref == "") != ncol(ref), , drop = FALSE]
+    if (!nrow(ref)) {
+      stop("Reference file '", ref_path, "' has no non-empty rows after cleaning.")
+    }
+    
+    ## 4) Required columns ----
+    # Now require: site_station_code, timestamp, site_comments
+    required_cols <- c("site_station_code", "timestamp", "site_comments")
+    missing_cols  <- setdiff(required_cols, names(ref))
+    if (length(missing_cols)) {
+      stop(
+        "Reference data is missing required column(s): ",
+        paste(missing_cols, collapse = ", ")
+      )
+    }
+    
+    # We still expect at least one of stage_m or depth_m
+    if (!("stage_m" %in% names(ref)) && !("depth_m" %in% names(ref))) {
+      stop(
+        "Reference data must contain at least one of 'stage_m' or 'depth_m'."
+      )
+    }
+    
+    ## 5) Parse timestamp column ----
+    parse_dt <- function(x) {
+      x_chr <- as.character(x)
+      p1 <- try(lubridate::mdy_hm(x_chr, tz = "UTC"), silent = TRUE)
+      if (!inherits(p1, "try-error") && !all(is.na(p1))) {
+        return(p1)
+      }
+      
+      # fallback formats
+      p2 <- suppressWarnings(
+        lubridate::parse_date_time(
+          x_chr,
+          orders = c(
+            "mdy HM", "mdy HMS", "mdY HM", "mdY HMS",
+            "ymd HM", "ymd HMS"
+          ),
+          tz = "UTC"
+        )
+      )
+      if (all(is.na(p2))) {
+        stop(
+          "Failed to parse 'timestamp'. ",
+          "Expected formats like '7/23/2019 14:30' (mdy_hm)."
+        )
+      }
+      p2
+    }
+    
+    ref$timestamp <- parse_dt(ref$timestamp)
+    
+    # Warn if any timestamps are NA after parsing
+    na_ts <- which(is.na(ref$timestamp))
+    if (length(na_ts)) {
+      warning(
+        "Missing/invalid 'timestamp' on row(s): ",
+        paste(na_ts, collapse = ", ")
+      )
+    }
+    
+    ## 6) Ensure stage_m / depth_m numeric ----
+    if ("stage_m" %in% names(ref)) {
+      ref$stage_m <- suppressWarnings(as.numeric(ref$stage_m))
+      bad_stage <- which(is.na(ref$stage_m))
+      if (length(bad_stage)) {
+        warning(
+          "Non-numeric or missing 'stage_m' on row(s): ",
+          paste(bad_stage, collapse = ", "),
+          ". These will be treated as NA."
+        )
+      }
+      if (any(ref$stage_m < 0, na.rm = TRUE)) {
+        warning("Some 'stage_m' values are negative – check units and data entry.")
+      }
+    }
+    
+    if ("depth_m" %in% names(ref)) {
+      ref$depth_m <- suppressWarnings(as.numeric(ref$depth_m))
+      bad_depth <- which(is.na(ref$depth_m))
+      if (length(bad_depth)) {
+        warning(
+          "Non-numeric or missing 'depth_m' on row(s): ",
+          paste(bad_depth, collapse = ", "),
+          ". These will be treated as NA."
+        )
+      }
+      if (any(ref$depth_m < 0, na.rm = TRUE)) {
+        warning("Some 'depth_m' values are negative – check units and data entry.")
+      }
+    }
+    
+    ## 7) Check rows with no usable reference value ----
+    if ("stage_m" %in% names(ref) && "depth_m" %in% names(ref)) {
+      no_level_rows <- which(is.na(ref$stage_m) & is.na(ref$depth_m))
+    } else if ("stage_m" %in% names(ref)) {
+      no_level_rows <- which(is.na(ref$stage_m))
+    } else {
+      no_level_rows <- which(is.na(ref$depth_m))
+    }
+    
+    if (length(no_level_rows)) {
+      warning(
+        "Rows with no usable reference value (stage_m/depth_m) on row(s): ",
+        paste(no_level_rows, collapse = ", "),
+        ". These rows will still be returned but cannot be used as reference levels."
+      )
+    }
+    
+    ## 8) Duplicate (site, timestamp) checks ----
+    dup_idx <- which(duplicated(ref[, c("site_station_code", "timestamp")]))
+    if (length(dup_idx)) {
+      warning(
+        "Duplicate (site_station_code, timestamp) combinations at row(s): ",
+        paste(dup_idx, collapse = ", "),
+        ". You may want to consolidate or remove duplicates."
+      )
+    }
+    
+    ## 9) Light hygiene ----
+    ref$site_station_code <- trimws(as.character(ref$site_station_code))
+    ref$site_comments     <- trimws(as.character(ref$site_comments))
+    
+    ref
+    
+  }, error = function(e) {
+    stop("Error reading/parsing reference data: ", e$message, call. = FALSE)
+  })
+}
