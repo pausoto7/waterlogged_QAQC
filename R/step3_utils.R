@@ -11,9 +11,11 @@
 #' @param fun_name Name of the calling function (for nicer error messages).
 #'
 #' @return input_data with timestamp coerced to POSIXct if needed.
+
+
 QAQC_wl_kpa_inputs <- function(input_data,
-                             logger_type_expected = "u20",
-                             fun_name = "convert_waterlevel_kPa_m") {
+                               logger_type_expected = "u20",
+                               fun_name = "convert_waterlevel_kPa_m") {
   
   ## 1) Required columns ---------------------------------------------
   required_cols <- c(
@@ -41,7 +43,7 @@ QAQC_wl_kpa_inputs <- function(input_data,
       warning(
         fun_name, "(): logger type(s) in input_data (",
         paste(lt_raw, collapse = ", "),
-        ") do not match expected pattern '", logger_type_expected, "'.\n",
+        ") do not match expected pattern '", logger_type_expected, "'. ",
         "Proceeding anyway, but check that this really is the expected pressure logger."
       )
     }
@@ -68,10 +70,11 @@ QAQC_wl_kpa_inputs <- function(input_data,
   }
   
   ## 4) Light unit / range sanity checks -----------------------------
-  # Water temperature: we expect something like -5 to 40 °C
+  
+  # Water temperature: expected approx -5 to 40 °C
   if ("watertemp_C" %in% names(input_data)) {
     wt <- input_data$watertemp_C
-    bad_temp <- which(!is.na(wt) & (wt < -5 | wt > 40))
+    bad_temp <- which(!is.na(wt) & (wt < -5 | wt > 40))   # CORRECTED (& not &&)
     if (length(bad_temp)) {
       warning(
         fun_name, "(): watertemp_C has ", length(bad_temp),
@@ -80,31 +83,32 @@ QAQC_wl_kpa_inputs <- function(input_data,
     }
   }
   
-  # Barometric pressure: typically ~80–120 kPa at Earth’s surface
+  # Barometric pressure: typically 80–120 kPa
   if ("baro_data" %in% names(input_data)) {
     bp <- input_data$baro_data
-    bad_baro <- which(!is.na(bp) & (bp < 80 | bp > 120))
+    bad_baro <- which(!is.na(bp) & (bp < 80 | bp > 120))   # CORRECT
     if (length(bad_baro)) {
       warning(
         fun_name, "(): baro_data has ", length(bad_baro),
-        " value(s) outside [80, 120] kPa. Check units (should be kPa)."
+        " value(s) outside [80, 120] kPa. Check units."
       )
     }
   }
   
-  # Water pressure: we just enforce >0 and < 600 kPa as a sanity range
+  # Water pressure: expected >0 and <= 600 kPa
   if ("waterpress_kPa" %in% names(input_data)) {
     wp <- input_data$waterpress_kPa
-    bad_wp <- which(!is.na(wp) & (wp <= 0 | wp > 600))
+    bad_wp <- which(!is.na(wp) & (wp <= 0 | wp > 600))     # CORRECT
     if (length(bad_wp)) {
       warning(
         fun_name, "(): waterpress_kPa has ", length(bad_wp),
-        " value(s) outside (0, 600] kPa. Check units (should be kPa absolute)."
+        " value(s) outside (0, 600] kPa. Check units."
       )
     }
   }
   
-  return(input_data)
+  
+  input_data
 }
 
 
@@ -149,7 +153,6 @@ QAQC_reference_data <- function(ref_path) {
     }
     
     ## 4) Required columns ----
-    # Now require: site_station_code, timestamp, site_comments
     required_cols <- c("site_station_code", "timestamp", "site_comments")
     missing_cols  <- setdiff(required_cols, names(ref))
     if (length(missing_cols)) {
@@ -159,29 +162,27 @@ QAQC_reference_data <- function(ref_path) {
       )
     }
     
-    # We still expect at least one of stage_m or depth_m
+    # Need at least stage_m or depth_m
     if (!("stage_m" %in% names(ref)) && !("depth_m" %in% names(ref))) {
-      stop(
-        "Reference data must contain at least one of 'stage_m' or 'depth_m'."
-      )
+      stop("Reference data must contain at least one of 'stage_m' or 'depth_m'.")
     }
     
     ## 5) Parse timestamp column ----
     parse_dt <- function(x) {
       x_chr <- as.character(x)
+      
+      # Try mdy_hm first (matches your sheet e.g. 7/23/2019 14:30)
       p1 <- try(lubridate::mdy_hm(x_chr, tz = "UTC"), silent = TRUE)
       if (!inherits(p1, "try-error") && !all(is.na(p1))) {
         return(p1)
       }
       
-      # fallback formats
+      # Fallback to more flexible parser
       p2 <- suppressWarnings(
         lubridate::parse_date_time(
           x_chr,
-          orders = c(
-            "mdy HM", "mdy HMS", "mdY HM", "mdY HMS",
-            "ymd HM", "ymd HMS"
-          ),
+          orders = c("mdy HM", "mdy HMS", "mdY HM", "mdY HMS",
+                     "ymd HM", "ymd HMS"),
           tz = "UTC"
         )
       )
@@ -196,26 +197,9 @@ QAQC_reference_data <- function(ref_path) {
     
     ref$timestamp <- parse_dt(ref$timestamp)
     
-    # Warn if any timestamps are NA after parsing
-    na_ts <- which(is.na(ref$timestamp))
-    if (length(na_ts)) {
-      warning(
-        "Missing/invalid 'timestamp' on row(s): ",
-        paste(na_ts, collapse = ", ")
-      )
-    }
-    
-    ## 6) Ensure stage_m / depth_m numeric ----
+    ## 6) stage_m / depth_m numeric & light checks ----
     if ("stage_m" %in% names(ref)) {
       ref$stage_m <- suppressWarnings(as.numeric(ref$stage_m))
-      bad_stage <- which(is.na(ref$stage_m))
-      if (length(bad_stage)) {
-        warning(
-          "Non-numeric or missing 'stage_m' on row(s): ",
-          paste(bad_stage, collapse = ", "),
-          ". These will be treated as NA."
-        )
-      }
       if (any(ref$stage_m < 0, na.rm = TRUE)) {
         warning("Some 'stage_m' values are negative – check units and data entry.")
       }
@@ -223,43 +207,44 @@ QAQC_reference_data <- function(ref_path) {
     
     if ("depth_m" %in% names(ref)) {
       ref$depth_m <- suppressWarnings(as.numeric(ref$depth_m))
-      bad_depth <- which(is.na(ref$depth_m))
-      if (length(bad_depth)) {
-        warning(
-          "Non-numeric or missing 'depth_m' on row(s): ",
-          paste(bad_depth, collapse = ", "),
-          ". These will be treated as NA."
-        )
-      }
       if (any(ref$depth_m < 0, na.rm = TRUE)) {
         warning("Some 'depth_m' values are negative – check units and data entry.")
       }
     }
     
-    ## 7) Check rows with no usable reference value ----
-    if ("stage_m" %in% names(ref) && "depth_m" %in% names(ref)) {
-      no_level_rows <- which(is.na(ref$stage_m) & is.na(ref$depth_m))
-    } else if ("stage_m" %in% names(ref)) {
-      no_level_rows <- which(is.na(ref$stage_m))
-    } else {
-      no_level_rows <- which(is.na(ref$depth_m))
+    ## 7) High-level check for any usable reference values -----------
+    has_stage_vals <- "stage_m" %in% names(ref) && any(!is.na(ref$stage_m))
+    has_depth_vals <- "depth_m" %in% names(ref) && any(!is.na(ref$depth_m))
+    
+    # Optional: treat some discharge columns as acceptable "reference"
+    discharge_cols <- intersect(
+      names(ref),
+      c("Q_cms", "Q_m3s", "discharge_cms", "discharge_m3s")
+    )
+    has_discharge_vals <- FALSE
+    if (length(discharge_cols) > 0) {
+      has_discharge_vals <- any(
+        vapply(
+          discharge_cols,
+          function(col) any(!is.na(suppressWarnings(as.numeric(ref[[col]]))), na.rm = TRUE),
+          logical(1)
+        )
+      )
     }
     
-    if (length(no_level_rows)) {
+    if (!has_stage_vals && !has_depth_vals && !has_discharge_vals) {
       warning(
-        "Rows with no usable reference value (stage_m/depth_m) on row(s): ",
-        paste(no_level_rows, collapse = ", "),
-        ". These rows will still be returned but cannot be used as reference levels."
+        "Reference data has no usable stage, depth, or discharge values; ",
+        "no reference levels can be derived from this file."
       )
     }
     
     ## 8) Duplicate (site, timestamp) checks ----
-    dup_idx <- which(duplicated(ref[, c("site_station_code", "timestamp")]))
-    if (length(dup_idx)) {
+    dup_idx <- duplicated(ref[, c("site_station_code", "timestamp")])
+    if (any(dup_idx)) {
       warning(
-        "Duplicate (site_station_code, timestamp) combinations at row(s): ",
-        paste(dup_idx, collapse = ", "),
-        ". You may want to consolidate or remove duplicates."
+        "Duplicate (site_station_code, timestamp) combinations detected (",
+        sum(dup_idx), " duplicates). You may want to consolidate or remove them."
       )
     }
     
@@ -273,3 +258,4 @@ QAQC_reference_data <- function(ref_path) {
     stop("Error reading/parsing reference data: ", e$message, call. = FALSE)
   })
 }
+

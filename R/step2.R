@@ -1,25 +1,10 @@
-#step 2
 
-baro_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/baro", 
-                              path_to_output_folder = "data/testing/processed", 
-                              metadata_path = "data/testing/raw/testing_metadata.csv")
-
-level_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/level", 
-                              path_to_output_folder = "data/testing/processed", 
-                              metadata_path = "data/testing/raw/testing_metadata.csv")
+ source("R/step2_utils.R")
 
 
-input_data = level_bound[[1]]
-path_to_output_folder = "data/testing/processed"
-
-max_km <- 30
-
-baro_data_path <- "data/testing/processed"
-
-source("R/step2_utils.R")
-
-
-add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
+add_nearest_baro <- function(input_data, path_to_output_folder,
+                             baro_data_path,
+                             max_km = 30, 
                              baro_site_selection = "auto",
                              metadata_path){
 
@@ -66,6 +51,8 @@ add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
       full.names = TRUE,
       recursive  = TRUE
     )
+    
+    print(list.files(baro_data_path, pattern = "_BARO_", recursive = TRUE))
     
     if (!length(file_paths)) {
       stop("No BARO files found for selected site: ", baro_stn,
@@ -315,9 +302,35 @@ add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
       print(na_gaps)
     }
     
-    logger_header <- unique(input_data$metric)
-    
 
+
+    # Map metric names to official naming codes
+    metric_code_map <- list(
+      "waterlevel"   = "WL",
+      "wl"           = "WL",
+      "barometric"   = "BARO",
+      "baro"         = "BARO",
+      "airtemp"      = "AT",
+      "at"           = "AT",
+      "watertemp"    = "WT",
+      "water_temp"   = "WT",
+      "temp"         = "TEMP",
+      "temperature"  = "TEMP",
+      "pressure"     = "P",
+      "conductivity" = "COND",
+      "cond"         = "COND",
+      "conduct"      = "COND"
+    )
+    
+    metric_raw <- tolower(unique(input_data$metric))
+    
+    logger_header <- if (metric_raw %in% names(metric_code_map)) {
+      metric_code_map[[metric_raw]]
+    } else {
+      warning("Unknown metric '", metric_raw, "'. Using uppercase fallback naming.")
+      toupper(metric_raw)
+    }
+    
     # If you only have wide_baro_df (timestamp + baro_data + baro_site_stn_code),
     # join it into input_data so we have site_station_code alongside baro_data:
     df_with_baro <- input_data %>%
@@ -387,10 +400,5 @@ add_nearest_baro <- function(input_data, path_to_output_folder, baro_data_path,
   return(list(df_with_baro, qc_plot))
 } # end of function
 
-
-# nearest_baro <- add_nearest_baro(input_data, path_to_output_folder, baro_data_path,
-#                              baro_site_selection = "auto",
-#                              metadata_path)
-# 
 
 
