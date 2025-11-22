@@ -28,7 +28,7 @@ input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
 # step 3--------------------------------------------------------------------------------
 
 converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
-                                           select_station = "ALBR_ST_30",
+                                           select_station = "all",
                                            reference_data = "data/testing/raw/NT_manual_waterlevel_20251119.csv",
                                            reference_type = "stage",
                                            select_measurement = 1,
@@ -37,3 +37,16 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
 
 
 # get logger data --------------------------------------------------------------------
+
+
+source("R/get_logger_data.R")
+
+# need to go back and test this once I have "clean" data - aka V1.0
+# I've noticed a lot of col's are hard coded in - that will likely need to be fixed later on
+res_wl <- get_logger_data(
+  path_to_data   = "data/testing/processed",
+  data_processing = "v0.1",
+  metric          = "gvhgvm",
+  temporal_scale  = "none"
+)
+

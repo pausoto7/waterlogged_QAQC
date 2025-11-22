@@ -1,250 +1,141 @@
-#' Retrieve data
+
+
+#' Retrieve and summarise logger data
 #'
-#' Retrieve processed data by selecting desired variable, waterbody type, station, clean or raw, and temporal scale
-#' @param path_to_data path to location of desired files encased in quotations
-#' @param select_station unique site_station_code
-#' @param logger_type either dissolvedoxygen_U26, waterlevel_U20, or baro_U20
-#' @param data_processing either raw or clean, clean data has been processed via QAQC protocols, raw data should not be summarized ie. set temporal_scale to hourly
-#' @param temporal_scale either hourly, daily or monthly, daily and monthly return mean values of selected variable
-#' @param timestamp_format Formatting of timestamp column of input data, following POSTIX convention. Default is "%Y-%m-%d %H:%M:%S"
-#' @param timestamp_timezone Timezone of timestamp column of input data, following POSTIX convention. Default is UTC to force ignore daylight savings time.
-#' @return dataframe
+#' High-level helper to load logger data from disk, optionally filter by station,
+#' optionally summarise to a temporal scale, and optionally return plots.
+#'
+#' This function works with the original wide-format processed files
+#' (e.g. columns like \code{waterlevel_m_U20_adj}, \code{do_mgl_U26_adj}).
+#' Summarisation is only performed for clean data (v1.0), and only for the
+#' measurement variables corresponding to the chosen \code{metric}.
+#'
+#' @param path_to_data Path to the folder containing the CSV files. The function
+#'   will search this folder and its subfolders recursively.
+#' @param data_processing One of \code{"raw"}, \code{"v0.1"}, \code{"v0.2"},
+#'   \code{"v0.3"}, \code{"v1.0"}, \code{"clean"}. The value is used to select
+#'   files by version suffix. \code{"clean"} is treated as \code{"v1.0"}.
+#'   Summarisation (i.e., \code{temporal_scale != "none"}) is only allowed for
+#'   v1.0/clean data.
+#' @param metric A character string indicating which metric group to summarise.
+#'   Used only when \code{temporal_scale != "none"}. Accepted values (case and
+#'   spaces ignored) are mapped to:
+#'   \itemize{
+#'     \item \code{"waterlevel"}: water level + water temperature
+#'     \item \code{"dissolvedoxygen"}: DO (mg/L, %sat) + water temperature
+#'     \item \code{"barometric"}: barometric pressure + air temperature
+#'     \item \code{"airtemp"}: air temperature (e.g., TidbiT)
+#'     \item \code{"watertemp"}: water temperature (e.g., TidbiT)
+#'   }
+#' @param select_station Either \code{"all"} (default) or one or more
+#'   \code{site_station_code} values to filter on.
+#' @param temporal_scale Temporal aggregation. Case and spaces ignored and
+#'   normalised to one of: \code{"none"}, \code{"hourly"}, \code{"daily"},
+#'   \code{"weekly"}, \code{"monthly"}, \code{"yearly"}. Use \code{"none"} to
+#'   return raw timestamps with no summarisation. "Hourly" aggregates to
+#'   average-by-hour (using \code{floor_date}).
+#' @param return_plots Logical; if \code{TRUE} and \code{temporal_scale != "none"},
+#'   returns a list with data and ggplot objects. If \code{FALSE}, returns just
+#%'   the data frame.
+#'
+#' @return
+#'   \itemize{
+#'     \item If \code{temporal_scale == "none"}: a data frame of combined logger data.
+#'     \item Otherwise, if \code{return_plots = FALSE}: a summarised data frame.
+#'     \item Otherwise, a list with elements:
+#'       \itemize{
+#'         \item \code{data}: summarised data frame
+#'         \item \code{plot1}, \code{plot2}, \code{plot3}: ggplot objects
+#'           (some may be \code{NULL} depending on \code{metric}).
+#'       }
+#'   }
+#'
 #' @export
 #' @import dplyr
 #' @import ggplot2
 #' @import lubridate
 #' @import purrr
+#' 
 
-get_logger_data <- function(path_to_data, logger_type, timestamp_format = "%Y-%m-%d %H:%M:%S", timestamp_timezone = "UTC", data_processing = "clean", select_station = "all", temporal_scale = "hourly") {
+source("R/get_logger_data_utils.R")
+
+get_logger_data <- function(path_to_data,
+                            data_processing = c("v1.0", "raw", "v0.1", "v0.2", "v0.3"),
+                            metric          = NULL,
+                            select_station  = "all",
+                            temporal_scale  = "none",
+                            return_plots    = TRUE) {
   
-  #make sure all paths have trailing slash
-  if (!endsWith(path_to_data, "/")) {
-    path_to_data <- paste0(path_to_data, "/")
+  temporal_scale <- normalise_temporal_scale(temporal_scale)
+  dp_info        <- resolve_data_processing_pattern(data_processing)
+  data_processing <- dp_info$data_processing
+  pattern         <- dp_info$pattern
+  
+  # ---- Handle metric for temporal_scale = "none" -------------------------------
+  if (temporal_scale == "none") {
+    if (!missing(metric) && !is.null(metric)) {
+      message(
+        "Note: `metric` was provided (\"", metric, "\"), ",
+        "but is ignored when `temporal_scale = 'none'`."
+      )
+    }
   }
   
-  # input errors
-  if(logger_type != "baro_U20" & logger_type != "waterlevel_U20"& logger_type != "dissolvedoxygen_U26" & logger_type != "airtemp_TidbiT" & logger_type != "watertemp_TidbiT") {
-    print("Uh oh! logger_type not recognized. Must be either dissolvedoxygen_U26, waterlevel_U20, baro_U20, airtemp_TidbiT or watertemp_TidbiT.")
+  # find files recursively
+  file_paths <- list.files(
+    path       = path_to_data,
+    pattern    = pattern,
+    full.names = TRUE,
+    recursive  = TRUE
+  )
+  
+  if (length(file_paths) == 0L) {
+    stop(
+      "No files found in `path_to_data` (recursively) matching pattern '", pattern, "'. ",
+      "Check the folder path, data_processing choice, and file naming.",
+      call. = FALSE
+    )
   }
   
-  # raw data
-  if(data_processing=="raw") {
-    file_names <- list.files(path = path_to_data, pattern = "\\.csv$") # extract file names ending in csv
-  }
-  # the processed folder contains output of several stages of data processed.
-  # For processed data that is the output of bind_hobo_files
-  # extract ONLY file names ending in "v0.1.csv"
-  if(data_processing=="v0.1") {
-    file_names <- list.files(path = path_to_data, pattern = "v0.1.csv$")
-  }
-  # For processed data that is the output of add_nearest_baro
-  # extract ONLY file names ending in "v0.2.csv"
-  if(data_processing=="v0.2") {
-    file_names <- list.files(path = path_to_data, pattern = "v0.2.csv$")
-  }
-  # For processed data that is the output of convert_waterlevel_m or convert_dissox_mgl_percsat
-  # extract ONLY file names ending in "v0.3.csv"
-  if(data_processing=="v0.3") {
-    file_names <- list.files(path = path_to_data, pattern = "v0.3.csv$")
+  # read and combine
+  dat <- purrr::map_df(file_paths, read_logger_file)
+  
+  # optional station filter
+  if (!identical(select_station, "all")) {
+    dat <- dat %>% dplyr::filter(site_station_code %in% select_station)
   }
   
-  # For processed data that is the output of write_clean_data
-  # extract ONLY file names ending in "v1.0.csv"
-  if(data_processing=="clean"|data_processing=="v1.0") {
-    file_names <- list.files(path = path_to_data, pattern = "v1.0.csv$")
+  # if no summarisation requested, return combined wide data
+  if (temporal_scale == "none") {
+    return(dat)
   }
   
-  path_to_files <- paste0(path_to_data, file_names) # makes string of full file path for all csv files
-  
-  extract_data_from_file <- function(file) {
-    data <- read.csv(file, header = TRUE,
-                     stringsAsFactors = FALSE)
-    
-    #format timestamp
-    data$timestamp <-as.POSIXct(data$timestamp, format = timestamp_format, tz = timestamp_timezone)
-    
-    # format factor variables
-    try(data$sn <- as.factor(data$sn), silent = TRUE)
-    try(data$baro_code <- as.factor(data$baro_code), silent = TRUE)
-    
-    data$site_station_code <- as.factor(data$site_station_code)
-    try(data$qaqc_code <- as.factor(data$qaqc_code), silent = TRUE)
-    try(data$wl_qaqc_code <- as.factor(data$wl_qaqc_code), silent = TRUE)
-    try(data$do_qaqc_code <- as.factor(data$do_qaqc_code), silent = TRUE)
-    try(data$wt_qaqc_code <- as.factor(data$wt_qaqc_code), silent = TRUE)
-    try(data$at_qaqc_code <- as.factor(data$at_qaqc_code), silent = TRUE)
-    try(data$baro_qaqc_code <- as.factor(data$baro_qaqc_code), silent = TRUE)
-    
-    return(data)
-  } # end of extract data files loop
-  
-  dat1 <- map_df(path_to_files, extract_data_from_file)
-  
-  # optional select station
-  if(select_station != "all") {
-    dat1 <- dat1 %>% filter(site_station_code %in% select_station)
+  # summarisation: only allowed for v1.0/clean
+  if (!identical(data_processing, "v1.0")) {
+    stop(
+      "Summarisation (hourly/daily/weekly/monthly/yearly) is only allowed for ",
+      "clean data (v1.0). Use `data_processing = \"clean\"` or set ",
+      "`temporal_scale = \"none\"` for raw/intermediate data.",
+      call. = FALSE
+    )
   }
   
-  # optional select scale ONLY FOR CLEAN DATA
-  dat2<- dat1
+  metric_norm <- normalise_metric(metric)
   
-  if(data_processing=="clean"&temporal_scale!="hourly") {
-    # make new grouping_var column
-    dat2$grouping_var <- NA
-    #group by selected scale
-    if(temporal_scale == "daily") {
-      dat2$grouping_var <- date(dat2$timestamp)
-    }
-    if(temporal_scale == "weekly") {
-      dat2$grouping_var <- paste0(year(dat2$timestamp),"-", week(dat2$timestamp))
-      
-    }
-    if(temporal_scale == "monthly") {
-      dat2$grouping_var <- paste0(year(dat2$timestamp),"-", month(dat2$timestamp))
-    }
-    if(temporal_scale == "yearly") {
-      dat2$grouping_var <- year(dat2$timestamp)
-    }
-    # columns differ by logger type
-    if(logger_type=="dissolvedoxygen_U26"){
-      var_ylab2 <- bquote('Dissolved oxygen (mg·'~'L'^-1~')')
-      var_ylab1 <- "Water temperature (\u00b0C)"
-      var_ylab3 <- "Dissolved oxygen (% air sat.)"
-      
-      dat2 <- dat2 %>%
-        dplyr::group_by(site_station_code, grouping_var) %>%
-        dplyr::summarize(mean_do_mgl = mean(do_mgl_U26_adj, na.rm = TRUE),
-                         mean_do_percsat = mean(do_percsat_U26_adj, na.rm = TRUE),
-                         mean_watertemp_C = mean(watertemp_C_U26_adj, na.rm = TRUE),
-                         min_do_mgl = min(do_mgl_U26_adj, na.rm = TRUE),
-                         min_do_percsat = min(do_percsat_U26_adj, na.rm = TRUE),
-                         min_watertemp_C = min(watertemp_C_U26_adj, na.rm = TRUE),
-                         max_do_mgl = max(do_mgl_U26_adj, na.rm = TRUE),
-                         max_do_percsat = max(do_percsat_U26_adj, na.rm = TRUE),
-                         max_watertemp_C = max(watertemp_C_U26_adj, na.rm = TRUE))
-    }
-    if(logger_type=="waterlevel_U20"){
-      var_ylab2 <- "Water level (m)"
-      var_ylab1 <- "Water temperature (\u00b0C)"
-      
-      dat2 <- dat2 %>%
-        dplyr::group_by(site_station_code, grouping_var) %>%
-        dplyr::summarize(mean_waterlevel_m = mean(waterlevel_m_U20_adj, na.rm = TRUE),
-                         mean_watertemp_C = mean(watertemp_C_U20_adj, na.rm = TRUE),
-                         max_waterlevel_m = max(waterlevel_m_U20_adj, na.rm = TRUE),
-                         max_watertemp_C = max(watertemp_C_U20_adj, na.rm = TRUE),
-                         min_waterlevel_m = min(waterlevel_m_U20_adj, na.rm = TRUE),
-                         min_watertemp_C = min(watertemp_C_U20_adj, na.rm = TRUE))
-    }
-    if(logger_type=="baro_U20"){
-      
-      var_ylab2 <- "Air pressure (kPa)"
-      var_ylab1 <- "Air temperature (\u00b0C)"
-      
-      dat2 <- dat2 %>%
-        dplyr::group_by(site_station_code, grouping_var) %>%
-        dplyr::summarize(mean_airpress_kPa = mean(airpress_kPa_U20, na.rm = TRUE),
-                         mean_airtemp_C = mean(airtemp_C_U20_adj, na.rm = TRUE),
-                         min_airpress_kPa = min(airpress_kPa_U20, na.rm = TRUE),
-                         min_airtemp_C = min(airtemp_C_U20_adj, na.rm = TRUE),
-                         max_airpress_kPa = max(airpress_kPa_U20, na.rm = TRUE),
-                         max_airtemp_C = max(airtemp_C_U20_adj, na.rm = TRUE))
-    }
-    if(logger_type=="airtemp_TidbiT"){
-      var_ylab1 <- "Air temperature (\u00b0C)"
-      
-      dat2 <- dat2 %>%
-        dplyr::group_by(site_station_code, grouping_var) %>%
-        dplyr::summarize(mean_airtemp_C = mean(airtemp_C_TidbiT_adj, na.rm = TRUE),
-                         min_airtemp_C = min(airtemp_C_TidbiT_adj, na.rm = TRUE),
-                         max_airtemp_C = max(airtemp_C_TidbiT_adj, na.rm = TRUE))
-    }
-    if(logger_type=="watertemp_TidbiT"){
-      var_ylab1 <- "Water temperature (\u00b0C)"
-      
-      dat2 <- dat2 %>%
-        dplyr::group_by(site_station_code, grouping_var) %>%
-        dplyr::summarize(mean_watertemp_C = mean(watertemp_C_TidbiT_adj, na.rm = TRUE),
-                         min_watertemp_C = min(watertemp_C_TidbiT_adj, na.rm = TRUE),
-                         max_watertemp_C = max(watertemp_C_TidbiT_adj, na.rm = TRUE))
-    }
-    
-    # rename columns
-    if(temporal_scale == "daily") {
-      colnames(dat2)[colnames(dat2) == 'grouping_var'] <- 'date'
-      timescale_lab <- "Date"
-      timescale_format <- "%y-%m-%d"
-      
-    }
-    if(temporal_scale == "weekly") {
-      colnames(dat2)[colnames(dat2) == 'grouping_var'] <- 'week'
-      timescale_lab <- "Week"
-      timescale_format <- "%y-%v"
-    }
-    if(temporal_scale == "monthly") {
-      colnames(dat2)[colnames(dat2) == 'grouping_var'] <- 'month'
-      timescale_lab <- "Timestamp (YY-MM)"
-      timescale_format <- "%y-%m"
-      
-    }
-    if(temporal_scale == "yearly") {
-      colnames(dat2)[colnames(dat2) == 'grouping_var'] <- 'year'
-      timescale_lab <- "Year"
-      timescale_format <- "%Y"
-      
-    }
-    
-    dat2 <- dat2 %>% mutate(across(where(is.numeric), round, 2))
-    dat2 <- as.data.frame(dat2)
-    dat2[sapply(dat2, is.infinite)] <- NA
-    dat2[sapply(dat2, is.nan)] <- NA
-    
-    # return requested dataset
-    print("List returned: [1] clean data summarized by selected temporal scale [2] summary plots of data by site_station_code and timestamp")
-    
-    ## Graph Data ####
-    
-    try(plot1 <- ggplot(data=dat2, aes(x = dat2[,2])) +
-          geom_line(aes(y = mean_watertemp_C), size = 1)+
-          geom_ribbon(alpha = 0.3, aes(ymin = min_watertemp_C, ymax = max_watertemp_C))+
-          facet_wrap(~site_station_code)+
-          theme_classic()+
-          theme(axis.text.x = element_text(angle = 90))+
-          # scale_x_datetime(date_labels = timescale_format)+
-          labs(x = timescale_lab, y = var_ylab1))
-    
-    try(plot2 <- ggplot(data=dat2, aes(x = dat2[,2])) +
-          geom_line(aes(y = dat2[,3]), size = 1)+
-          facet_wrap(~site_station_code)+
-          theme_classic()+
-          theme(axis.text.x = element_text(angle = 90))+
-          #scale_x_datetime(date_labels = timescale_format)+
-          labs(x = timescale_lab, y = var_ylab2))
-    
-    # add ribbons separately
-    if(logger_type=="dissolvedoxygen_U26"){
-      
-      plot2<- plot2+geom_ribbon(alpha = 0.3, aes(ymin = min_do_mgl, ymax = max_do_mgl))
-      
-      plot3 <- ggplot(data=dat2, aes(x = dat2[,2])) +
-        geom_line(aes(y = mean_do_percsat), size = 1)+
-        geom_ribbon(alpha = 0.3, aes(ymin = min_do_percsat, ymax = max_do_percsat))+
-        facet_wrap(~site_station_code)+
-        theme_classic()+
-        theme(axis.text.x = element_text(angle = 90))+
-        # scale_x_datetime(date_labels = timescale_format)+
-        labs(x = timescale_lab, y = var_ylab3)
-    }
-    
-    if(logger_type=="waterlevel_U20"){
-      plot2<- plot2 + geom_ribbon(alpha = 0.3, aes(ymin = min_waterlevel_m, ymax = max_waterlevel_m))
-    }
-    
-    return(list(dat2, try(plot1), try(plot2), try(plot3)))
-    
-    
-  } # end of clean data select_temporal_scale loop
+  dat_sum <- summarise_clean_data(dat, metric_norm, temporal_scale)
   
-  return(dat2)
+  if (!isTRUE(return_plots)) {
+    return(dat_sum)
+  }
   
-} # end of get_logger_data loop
+  plots <- build_plots(dat_sum, metric_norm, temporal_scale)
+  
+  message("Returning list: $data, $plot1, $plot2, $plot3 (some plots may be NULL).")
+  
+  list(
+    data  = dat_sum,
+    plot1 = plots$plot1,
+    plot2 = plots$plot2,
+    plot3 = plots$plot3
+  )
+}
