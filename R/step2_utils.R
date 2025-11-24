@@ -1,3 +1,49 @@
+
+
+
+normalize_string <- function(x) {
+  x <- tolower(x)
+  x <- trimws(x)
+  x <- gsub("\\s+", "", x)   # remove internal spaces
+  x
+}
+
+
+
+resolve_metrics_param <- function(metrics) {
+  # length check
+  if (length(metrics) != 1L) {
+    stop("`metrics` must be a single value ('DO', 'water level', or 'both'), ",
+         "not a vector of length ", length(metrics), ".",
+         call. = FALSE)
+  }
+  
+  metrics_raw <- normalize_string(metrics)
+  
+  valid_inputs <- c("do", "waterlevel", "both")
+  if (!metrics_raw %in% valid_inputs) {
+    stop("`metrics` must be one of: 'DO', 'water level', or 'both'. You supplied: ",
+         metrics, call. = FALSE)
+  }
+  
+  wl_keys <- c("waterlevel")
+  do_keys <- c("do", "dissolvedoxygen")
+  
+  metrics_need_baro <- switch(
+    metrics_raw,
+    "waterlevel" = wl_keys,
+    "do"         = do_keys,
+    "both"       = c(wl_keys, do_keys)
+  )
+  
+  list(
+    metrics_raw      = metrics_raw,
+    metrics_need_baro = metrics_need_baro
+  )
+}
+
+
+
 find_na_runs <- function(df, value_col = "baro_data", add_step = TRUE) {
   stopifnot("timestamp" %in% names(df))
   vcol <- rlang::sym(value_col)

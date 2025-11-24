@@ -23,7 +23,10 @@ waterlevel_qaqc <- function(input_data,
   }
   
   # Work on a copy, subset to the selected station
-  output_data <- input_data[input_data$site_station_code == select_station, ]
+  
+  output_data <- input_data %>%
+    filter(site_station_code == select_station)
+  
   rownames(output_data) <- NULL
   
   if (nrow(output_data) == 0) {
@@ -34,12 +37,14 @@ waterlevel_qaqc <- function(input_data,
   
   # 2. Initialise QA/QC columns (always, so plotting works even if plot_only = TRUE)
 
-  output_data$waterlevel_m_adj <- output_data$waterlevel_m
-  output_data$watertemp_C_adj  <- output_data$watertemp_C
-  
-  output_data$wl_qaqc_adj  <- rep(NA_character_, n)
-  output_data$wl_qaqc_code <- rep(NA_character_, n)
-  output_data$wl_qaqc_note <- rep(NA_character_, n)
+  output_data <- output_data %>%
+    dplyr::mutate(
+      waterlevel_m_adj = waterlevel_m,   # optional if you ever adjust WL
+      watertemp_C_adj  = watertemp_C,    # required
+      wl_qaqc_adj      = NA_character_,
+      wl_qaqc_code     = NA_character_,
+      wl_qaqc_note     = NA_character_
+    )
   
   # 3. Apply QA/QC rules (only if we're actually adjusting, not plot-only)
 

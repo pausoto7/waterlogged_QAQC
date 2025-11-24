@@ -122,6 +122,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
             paste(logger_type, collapse = ", "),
             ". Using first.")
   }
+  
   logger_type <- logger_type[[1]] 
   
   
@@ -134,44 +135,108 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   # setting this sa default. That way if logger_header is not assigned in anything below we can create an error.
   logger_header <- NA_character_  # default
   
+  #  TEMPERATURE HANDLING (°C or °F) ------------------
+
+  convert_F_to_C <- function(x) (x - 32) * (5/9)
   
-  # change column names to remove spaces and symbols for data processing
-  # if columns are in different units, then just keep original headers
-  if(colnames(sites_compiled)[3]=="DO conc mg/L"){
-    colnames(sites_compiled)[3]<- "do_mgl"
+  rename_temp_col <- function(df, newname, colidx = 4) {
+    # rename the column if it exists
+    if (ncol(df) >= colidx) {
+      colnames(df)[colidx] <- newname
+    }
+    df
+  }
+  
+  # DO LOGGER -----------------------------------------------------------
+  if (colnames(sites_compiled)[3] == "DO conc mg/L") {
+    colnames(sites_compiled)[3] <- "do_mgl"
     logger_header <- "DO"
     
-    if(colnames(sites_compiled)[4]=="Temp °C"){
-      colnames(sites_compiled)[4]<- "watertemp_C"
+    # Temp handling
+    if (ncol(sites_compiled) >= 4) {
+      if (colnames(sites_compiled)[4] == "Temp °C") {
+        colnames(sites_compiled)[4] <- "watertemp_C"
+      }
+      if (colnames(sites_compiled)[4] == "Temp °F") {
+        sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
+        colnames(sites_compiled)[4] <- "watertemp_C"
+      }
     }
   }
-  if(colnames(sites_compiled)[3]=="Abs Pres kPa" & measurement_type == "barometric"){
-    colnames(sites_compiled)[3]<- "airpress_kPa"
+  
+  # BAROMETRIC LOGGER ---------------------------------------------------
+  if (colnames(sites_compiled)[3] == "Abs Pres kPa" & measurement_type == "barometric") {
+    colnames(sites_compiled)[3] <- "airpress_kPa"
     sites_compiled <- sites_compiled[complete.cases(sites_compiled$airpress_kPa),]
-    
     logger_header <- "BARO"
-    if(colnames(sites_compiled)[4]=="Temp °C"){
-      colnames(sites_compiled)[4]<- "airtemp_C"
+    
+    if (ncol(sites_compiled) >= 4) {
+      if (colnames(sites_compiled)[4] == "Temp °C") {
+        colnames(sites_compiled)[4] <- "airtemp_C"
+      }
+      if (colnames(sites_compiled)[4] == "Temp °F") {
+        sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
+        colnames(sites_compiled)[4] <- "airtemp_C"
+      }
     }
   }
-  if(colnames(sites_compiled)[3]=="Abs Pres kPa" & measurement_type == "waterlevel"){
-    colnames(sites_compiled)[3]<- "waterpress_kPa"
+  
+  # WATER LEVEL LOGGER --------------------------------------------------
+  if (colnames(sites_compiled)[3] == "Abs Pres kPa" & measurement_type == "waterlevel") {
+    colnames(sites_compiled)[3] <- "waterpress_kPa"
     logger_header <- "WL"
     
-    if(colnames(sites_compiled)[4]=="Temp °C"){
-      colnames(sites_compiled)[4]<- "watertemp_C"
+    if (ncol(sites_compiled) >= 4) {
+      if (colnames(sites_compiled)[4] == "Temp °C") {
+        colnames(sites_compiled)[4] <- "watertemp_C"
+      }
+      if (colnames(sites_compiled)[4] == "Temp °F") {
+        sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
+        colnames(sites_compiled)[4] <- "watertemp_C"
+      }
     }
   }
-  if(colnames(sites_compiled)[3]=="Temp °C" & logger_type == "watertemp_tidbit"){
+  
+  # TIDBIT WATER TEMP LOGGER -------------------------------------------
+  if (colnames(sites_compiled)[3] == "Temp °C" & logger_type == "tidbit") {
     logger_header <- "WT"
-    colnames(sites_compiled)[3]<- "watertemp_C"
-    
+    colnames(sites_compiled)[3] <- "watertemp_C"
   }
-  if(colnames(sites_compiled)[3]=="Temp °C" & logger_type == "airtemp_tidbiT"){
+  
+  if (colnames(sites_compiled)[3] == "Temp °F" & logger_type == "tidbit") {
+    logger_header <- "WT"
+    sites_compiled[[3]] <- convert_F_to_C(sites_compiled[[3]])
+    colnames(sites_compiled)[3] <- "watertemp_C"
+  }
+  
+  # TIDBIT AIR TEMP LOGGER ---------------------------------------------
+  if (colnames(sites_compiled)[3] == "Temp °C" & logger_type == "tidbit") {
     logger_header <- "AT"
-    colnames(sites_compiled)[3]<- "airtemp_C"
-    
+    colnames(sites_compiled)[3] <- "airtemp_C"
   }
+  
+  if (colnames(sites_compiled)[3] == "Temp °F" & logger_type == "tidbit") {
+    logger_header <- "AT"
+    sites_compiled[[3]] <- convert_F_to_C(sites_compiled[[3]])
+    colnames(sites_compiled)[3] <- "airtemp_C"
+  }
+  
+  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
+  if (colnames(sites_compiled)[3] %in% c("Low Range μS/cm", "Full Range μS/cm")) {
+    colnames(sites_compiled)[3] <- "conduct_uScm"
+    logger_header <- "CO"
+    
+    if (ncol(sites_compiled) >= 4) {
+      if (colnames(sites_compiled)[4] == "Temp °C") {
+        colnames(sites_compiled)[4] <- "watertemp_C"
+      }
+      if (colnames(sites_compiled)[4] == "Temp °F") {
+        sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
+        colnames(sites_compiled)[4] <- "watertemp_C"
+      }
+    }
+  }
+  
   
   # If logger_header is not succesfully reassigned above
   if (is.na(logger_header)) {
