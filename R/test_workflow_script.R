@@ -2,12 +2,11 @@
 
 
 
-
-
 # misc
 
   # what to do with temp qaqc script - should we incorporate it into bind_hobo_files?
   # a universal function could probably be created for writing csv names
+  # We're still missing a drift correct function - always make correction linear?
 
 
 # metadata file 
@@ -24,6 +23,7 @@
 
 # still need to add tidbit QAQC
 # if you have multiple metric types in one folder; this function will give three of the same errors for this. Could be simplified so only one is given. 
+# Low/Range vs high range conductivity read file issue - see issue in github Issues
 
 source("R/step1.R") # bind_hobo_files -> output v0.1
 
@@ -84,7 +84,7 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
 
 # get logger data --------------------------------------------------------------------
 
-# haven't qaqc'd much yet beause need a complete dataset to do so
+# haven't qaqc'd much yet beause need a complete V1.0 dataset to do so - haven't gotten there yet
 
 source("R/get_logger_data.R")
 
@@ -100,7 +100,7 @@ res_wl <- get_logger_data(
 
 # convert do mgl percsat -----------------------------------------------------------------
 
-# check code to check that after all this rewriting math still makes sense for conversion
+# double check code to check that that math still makes sense for conversion after some code changes
 # do we really need version input here?
 
 # COMPLETE
@@ -116,11 +116,16 @@ converted_percSat <- convert_do_mgl_percsat(DO_with_Baro[[1]],
 
 # improve plotting -> right now when you zoom in there's few or none x axis labels. Would be beneficial to add more for better understanding of scale. 
 #                  -> Could also benefit from at least the zero line being shown 
+# Currently the log file is logging every single flag that's just automated... not sure if we should keep this or just keep actual changes..
+# would be nice to add a proper warning about if you can't open file xx: Permission denied when you have the file open; would be a helpul addition for non coders. Same for the following logger functions
+
 
 source("R/waterlevel_qaqc.R")
 
+# FYI - SPLIT THIS CODE UP TO BE TWO FUNCTIONS 1) waterlevel_complete_QAQC   2) waterlevel_qaqc_plot
 waterlevel_complete_QAQC <- waterlevel_qaqc(converted_data[[1]],
-                            select_station = "WL_ALBR_ST_30") 
+                                            log_root = "data/testing/processed", 
+                                            select_station = "WL_ALBR_ST_30") 
 
 waterlevel_complete_QAQC
 
@@ -131,11 +136,18 @@ waterlevel_complete_QAQC
 
 source("R/adjust_waterlevel_spike.R")
 
-station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC[[1]], 
+station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC, 
                                            select_station = "WL_ALBR_ST_30",
                                            timestamp_start = "2025-02-11 21:00:00",
                                            timestamp_end = "2025-02-20 16:00:00", 
-                                           reason_to_adjust = "ice")
+                                           reason_to_adjust = "ice", 
+                                           manual_note = "suspected ice formation due to freezing temps",
+                                           log_root = "data/testing/processed", 
+                                           user = Sys.info()[["user"]])
+
+# plot hydro -----------------------------------------------------------------------------------
+
+# symbology for flags and edits could be a little clearer if we wanted to
 
 source("R/plot_hydro_data.R")
 
@@ -145,6 +157,22 @@ waterlevel_qaqc_plot(qaqc_data = station_wl_qc,
 
 
 # adjust water level offset --------------------------------------------------------------
+  #(PREVIOUSLY, ADJUST WATER LEVEL CABLE BREAK - RENAMED TO MAKE MORE UNIVERSAL)
 
+# shouldn't we have to add what direction and how much to move this offset??
+
+source("R/adjust_wl_offset.R")
+
+station_wl_qc2 <- adjust_WL_offset(input_data = station_wl_qc,
+                                 select_station = "WL_ALBR_ST_30",
+                                 timestamp_start = "2025-02-04 07:00:00",
+                                 timestamp_end = "2025-02-09 00:00:00" ,
+                                 manual_note = "Suspected storm moved logger",
+                                 log_root = "data/testing/processed",
+                                 user = Sys.info()[["user"]])
+
+# plot
+waterlevel_qaqc_plot(qaqc_data = station_wl_qc2,
+                     select_station = "WL_ALBR_ST_30")
 
 

@@ -1,5 +1,3 @@
-
-
 # Internal: build path to a station+metric log file
 qaqc_log_path <- function(log_root, station, metric) {
   # logs live above the year folders, in a "logs" dir
@@ -9,8 +7,7 @@ qaqc_log_path <- function(log_root, station, metric) {
 }
 
 # Internal: append rows to a station+metric log (create if missing)
-qaqc_log_append <- function(log_root, station, metric, log_rows) {
-  log_path <- .qaqc_log_path(log_root, station, metric)
+qaqc_log_append <- function(log_path, station, metric, log_rows) {
   
   # Ensure log directory exists
   dir.create(dirname(log_path), recursive = TRUE, showWarnings = FALSE)
@@ -32,4 +29,43 @@ qaqc_log_append <- function(log_root, station, metric, log_rows) {
   
   utils::write.csv(log_out, log_path, row.names = FALSE)
   invisible(log_path)
+}
+
+# Internal: create a single QA/QC log row
+make_qaqc_log_row <- function(timestamps,
+                               station,
+                               metric,
+                               field,
+                               action,
+                               code,
+                               action_note,
+                               manual_note,
+                               fun_name,
+                               user,
+                               run_time = Sys.time()) {
+  # No affected timestamps: nothing to log for this code
+  if (length(timestamps) == 0 || all(is.na(timestamps))) {
+    return(NULL)
+  }
+  
+  ts_start <- min(timestamps, na.rm = TRUE)
+  ts_end   <- max(timestamps, na.rm = TRUE)
+  
+  duration_hours <- as.numeric(difftime(ts_end, ts_start, units = "hours"))
+  
+  tibble::tibble(
+    station        = station,
+    metric         = metric,
+    field          = field,
+    action         = action,
+    code           = code,
+    action_note    = action_note,
+    manual_note    = manual_note,
+    ts_start       = ts_start,
+    ts_end         = ts_end,
+    duration_hours = duration_hours,
+    fun_name       = fun_name,
+    run_at         = run_time,
+    user           = user
+  )
 }

@@ -17,19 +17,19 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
   }
   
   
-  # ---- QC + normalization for metrics param ----
+  # QC + normalization for metrics param ----
   metrics_info <- resolve_metrics_param(metric)
   metrics_raw       <- metrics_info$metrics_raw
   metrics_need_baro <- metrics_info$metrics_need_baro
   
-  # ---- normalize metric names in input_data and metadata ----
+  # normalize metric names in input_data and metadata ----
   input_data <- input_data %>%
     dplyr::mutate(metric_norm = normalize_string(metric))
   
   metadata <- metadata %>%
     dplyr::mutate(metric_norm = normalize_string(metric))
   
-  # ---- keep only rows that need baro ----
+  # keep only rows that need baro ----
   input_data <- input_data %>%
     dplyr::filter(metric_norm %in% metrics_need_baro)
   

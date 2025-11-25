@@ -133,7 +133,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   
   # setting this sa default. That way if logger_header is not assigned in anything below we can create an error.
-  logger_header <- NA_character_  # default
+  logger_header <- NA_character_ 
   
   #  TEMPERATURE HANDLING (°C or °F) ------------------
 

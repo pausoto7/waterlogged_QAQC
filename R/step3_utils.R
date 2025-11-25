@@ -1,20 +1,7 @@
-#' QA/QC for step 3 input data (waterlevel conversion)
-#'
-#' Ensures required columns exist, logger_type looks reasonable, timestamp is POSIXct,
-#' and does some light range checks on temperature and pressure.
-#'
-#' @param input_data Data frame passed into convert_waterlevel_kPa_m().
-#'        Must contain at least:
-#'        site_station_code, timestamp, waterpress_kPa, watertemp_C, airpress_kPa
-#' @param logger_type_expected Character pattern for allowed logger types
-#'        (e.g., "u20"), matched case-insensitively in `logger_type` if present.
-#' @param fun_name Name of the calling function (for nicer error messages).
-#'
-#' @return input_data with timestamp coerced to POSIXct if needed.
 
 QAQC_wl_kpa_inputs <- function(input_data, logger_type_expected = "u20") {
   
-  ## --- Required columns etc. (your existing checks) ------------------
+  # Required columns etc. 
   required_cols <- c("site_station_code",
                      "timestamp",
                      "waterpress_kPa",

@@ -44,19 +44,19 @@ QAQC_metadata <- function(metadata_path) {
     metadata$timestamp_deploy <- parse_dt(metadata$timestamp_deploy)
     metadata$timestamp_remove <- parse_dt(metadata$timestamp_remove)
     
-    # 4b) Warn if any timestamps are NA after parsing
+    # 4) Warn if any timestamps are NA after parsing
     na_deploy <- which(is.na(metadata$timestamp_deploy))
     na_remove <- which(is.na(metadata$timestamp_remove))
     if (length(na_deploy)) warning("Missing/invalid 'timestamp_deploy' on row(s): ", paste(na_deploy, collapse = ", "))
     if (length(na_remove)) warning("Missing/invalid 'timestamp_remove' on row(s): ", paste(na_remove, collapse = ", "))
     
-    # 5) sanity checks (fail hard if deploy > remove)
+    # 5) check deploy > remove
     if (any(metadata$timestamp_deploy > metadata$timestamp_remove, na.rm = TRUE)) {
       bad_rows <- which(metadata$timestamp_deploy > metadata$timestamp_remove)
       stop("Deploy time is after remove time on row(s): ", paste(bad_rows, collapse = ", "))
     }
     
-    # 6) Light type hygiene
+    # 6) station number as character
     if ("sn" %in% names(metadata)) {
       metadata$sn <- as.character(metadata$sn)  # preserve leading zeros if any
     }
@@ -67,8 +67,6 @@ QAQC_metadata <- function(metadata_path) {
     if (!has_lat || !has_lon) {
       warning("Latitude/longitude column(s) missing in metadata (expected 'latitude' and 'longitude').")
     } else {
-      # coerce to character, trim, then numeric; warn on DMS-like patterns
-
       lat_chr <- trimws(as.character(metadata$latitude))
       lon_chr <- trimws(as.character(metadata$longitude))
       

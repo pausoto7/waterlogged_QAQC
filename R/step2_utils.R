@@ -8,8 +8,6 @@ normalize_string <- function(x) {
   x
 }
 
-
-
 resolve_metrics_param <- function(metrics) {
   # length check
   if (length(metrics) != 1L) {
