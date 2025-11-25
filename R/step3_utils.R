@@ -5,7 +5,7 @@
 #'
 #' @param input_data Data frame passed into convert_waterlevel_kPa_m().
 #'        Must contain at least:
-#'        site_station_code, timestamp, waterpress_kPa, watertemp_C, baro_data.
+#'        site_station_code, timestamp, waterpress_kPa, watertemp_C, airpress_kPa
 #' @param logger_type_expected Character pattern for allowed logger types
 #'        (e.g., "u20"), matched case-insensitively in `logger_type` if present.
 #' @param fun_name Name of the calling function (for nicer error messages).
@@ -19,7 +19,7 @@ QAQC_wl_kpa_inputs <- function(input_data, logger_type_expected = "u20") {
                      "timestamp",
                      "waterpress_kPa",
                      "watertemp_C",
-                     "baro_data")
+                     "airpress_kPa")
   
   missing_cols <- setdiff(required_cols, names(input_data))
   if (length(missing_cols) > 0) {
@@ -106,10 +106,10 @@ QAQC_wl_kpa_inputs <- function(input_data, logger_type_expected = "u20") {
   # Baro pressure: rough sanity range
   warn_by_station_year(
     df        = input_data,
-    value_col = "baro_data",
+    value_col = "airpress_kPa",
     lower     = 80,
     upper     = 120,
-    label     = "convert_waterlevel_kPa_m(): baro_data outside [80, 120] kPa by station/year:"
+    label     = "convert_waterlevel_kPa_m(): airpress_kPa outside [80, 120] kPa by station/year:"
   )
   
   return(input_data)
@@ -345,7 +345,7 @@ convert_waterlevel_single <- function(input_data,
   output_data <- output_data %>%
     dplyr::mutate(
       sensor_depth_m      = FEET_TO_METERS * (KPA_TO_PSI * PSI_TO_PSF * waterpress_kPa) / density_lbft3,
-      baro_sensor_depth_m = FEET_TO_METERS * (KPA_TO_PSI * PSI_TO_PSF * baro_data)      / density_lbft3
+      baro_sensor_depth_m = FEET_TO_METERS * (KPA_TO_PSI * PSI_TO_PSF * airpress_kPa)      / density_lbft3
     )
   
   ## F) Reference point & compensation constant k ---------------

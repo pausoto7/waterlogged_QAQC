@@ -44,7 +44,7 @@ resolve_metrics_param <- function(metrics) {
 
 
 
-find_na_runs <- function(df, value_col = "baro_data", add_step = TRUE) {
+find_na_runs <- function(df, value_col = "airpress_kPa", add_step = TRUE) {
   stopifnot("timestamp" %in% names(df))
   vcol <- rlang::sym(value_col)
   

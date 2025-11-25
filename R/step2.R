@@ -137,7 +137,7 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
         wide_temp %>%
           dplyr::transmute(
             timestamp,
-            baro_temp = .data[[baro_col]]
+            airtemp_C = .data[[baro_col]]
           ),
         by = "timestamp"
       )
@@ -146,7 +146,7 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       dplyr::left_join(
         wide_baro_df %>%
           dplyr::select(
-            timestamp, airpress_kPa, baro_site_stn_code, baro_temp,
+            timestamp, airpress_kPa, baro_site_stn_code, airtemp_C,
             baro_qaqc_adj, baro_qaqc_note, baro_qaqc_code
           ),
         by = "timestamp"
@@ -336,7 +336,7 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       baro_temp_df_site <- wide_temp_site %>%
         dplyr::transmute(
           timestamp,
-          baro_temp = dplyr::coalesce(!!!temp_syms)
+          airtemp_C = dplyr::coalesce(!!!temp_syms)
         )
       
       wide_baro_df_site <- wide_baro_df_site %>%
@@ -384,7 +384,7 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
         dplyr::left_join(
           wide_baro_df_site %>%
             dplyr::select(
-              timestamp, airpress_kPa, baro_site_stn_code, baro_temp,
+              timestamp, airpress_kPa, baro_site_stn_code, airtemp_C,
               baro_qaqc_adj, baro_qaqc_note, baro_qaqc_code
             ),
           by = "timestamp"
