@@ -20,6 +20,13 @@ waterlevel_qaqc_plot <- function(qaqc_data,
     )
   }
   
+  if (!inherits(qaqc_data$timestamp, "POSIXt")) {
+    qaqc_data <- qaqc_data %>%
+      dplyr::mutate(
+        timestamp = lubridate::ymd_hms(timestamp)
+      )
+  }
+  
   # Subset + sort --------------------------------------------------------------
   plot_data <- qaqc_data %>%
     dplyr::filter(site_station_code == select_station) %>%
@@ -36,14 +43,6 @@ waterlevel_qaqc_plot <- function(qaqc_data,
   mark_cols   <- c(flag_cols, edit_cols)
   
   if (length(mark_cols) > 0) {
-    # Compute a baseline near zero, with small steps between rows
-    wl_vals  <- c(plot_data$waterlevel_m, plot_data$waterlevel_m_adj)
-    wl_range <- diff(range(wl_vals, na.rm = TRUE))
-    if (!is.finite(wl_range) || wl_range == 0) wl_range <- 0.1
-    
-    baseline <- 0 - 0.02 * wl_range
-    step     <- 0.02 * wl_range  # vertical spacing between rows
-    
     flagged_points <- plot_data %>%
       dplyr::select(timestamp, dplyr::all_of(mark_cols)) %>%
       tidyr::pivot_longer(
@@ -53,8 +52,7 @@ waterlevel_qaqc_plot <- function(qaqc_data,
       ) %>%
       dplyr::filter(mark_value) %>%
       dplyr::mutate(
-        mark_rank = dplyr::dense_rank(mark_type),
-        y         = baseline - step * (mark_rank - 1)
+        mark_type = factor(mark_type)
       )
   } else {
     flagged_points <- NULL
@@ -77,50 +75,11 @@ waterlevel_qaqc_plot <- function(qaqc_data,
       title = paste("QAQC for:", select_station),
       y     = "Water level (m)",
       x     = "Timestamp",
-      color = "",
-      shape = ""
+      color = ""
     ) +
     ggplot2::theme_classic()
   
-  # Add flag/edit markers if any exist ----------------------------------------
-  if (!is.null(flagged_points) && nrow(flagged_points) > 0) {
-    p <- p +
-      ggplot2::geom_point(
-        data  = flagged_points,
-        ggplot2::aes(
-          x     = timestamp,
-          y     = y,
-          shape = mark_type,
-          colour = mark_type
-        ),
-        size = 1.8
-      ) +
-      ggplot2::scale_shape_manual(
-        # triangles for disturbance; other shapes distinct
-        values = c(
-          flag_ice          = 16,  # circle
-          flag_disturbance  = 17,  # triangle
-          flag_dry          = 15,  # square
-          edit_spike_flat   = 3,   # plus
-          edit_offset = 4    # cross
-        )
-      ) +
-      ggplot2::scale_color_manual(
-        values = c(
-          flag_ice          = "navy",
-          flag_disturbance  = "black",
-          flag_dry          = "burlywood",
-          edit_spike_flat   = "darkslategrey",
-          edit_offset = "darkslategrey"
-        )
-      ) +
-      ggplot2::guides(
-        shape  = ggplot2::guide_legend(title = "QA/QC markers"),
-        colour = ggplot2::guide_legend(title = "QA/QC markers")
-      )
-  }
-  
-  # Bottom panel: temperatures -------------------------------------------------
+  # Middle panel: temperatures -------------------------------------------------
   q <- ggplot2::ggplot(plot_data, ggplot2::aes(x = timestamp)) +
     ggplot2::geom_line(
       ggplot2::aes(y = airtemp_C,       color = "airtemp_C"),
@@ -146,34 +105,81 @@ waterlevel_qaqc_plot <- function(qaqc_data,
     ) +
     ggplot2::theme_classic()
   
-  # Plotly combo ---------------------------------------------------------------
-  plots <- plotly::subplot(
-    suppressWarnings(plotly::ggplotly(p)),
-    suppressWarnings(plotly::ggplotly(q)),
-    heights = c(0.5, 0.5),
-    nrows   = 2,
-    shareX  = TRUE,
-    margin  = 0.05
-  ) %>%
-    plotly::layout(
-      xaxis = list(
-        rangeslider = list(visible = TRUE),
-        type        = "date",
-        tickmode    = "auto",
-        nticks      = 20
-      ),
-      yaxis  = list(
-        zerolinecolor = "black",
-        zerolinewidth = 2,
-        gridcolor     = "grey30"
-      ),
-      yaxis2 = list(
-        zerolinecolor = "#ffffff",
-        zerolinewidth = 2,
-        gridcolor     = "#ffffff"
-      ),
-      plot_bgcolor = "#e5ecf6"
-    )
+  # Bottom panel: flag / edit markers only ------------------------------------
+  if (!is.null(flagged_points) && nrow(flagged_points) > 0) {
+    
+    r <- ggplot2::ggplot(
+      flagged_points,
+      ggplot2::aes(
+        x     = timestamp,
+        y     = mark_type,
+        shape = mark_type,
+        colour = mark_type
+      )
+    ) +
+      ggplot2::geom_point(size = 1.8) +
+      ggplot2::scale_shape_manual(
+        values = c(
+          flag_ice         = 16,  # circle
+          flag_disturbance = 17,  # triangle
+          flag_dry         = 15,  # square
+          edit_spike_flat  = 3,   # plus
+          edit_offset      = 4    # cross
+        )
+      ) +
+      ggplot2::scale_color_manual(
+        values = c(
+          flag_ice         = "navy",
+          flag_disturbance = "black",
+          flag_dry         = "burlywood",
+          edit_spike_flat  = "darkslategrey",
+          edit_offset      = "darkslategrey"
+        )
+      ) +
+      ggplot2::labs(
+        title = "QA/QC flags & edits",
+        x     = "Timestamp",
+        y     = "Marker type",
+        shape = "",
+        colour = ""
+      ) +
+      ggplot2::theme_classic()
+    
+    plots <- plotly::subplot(
+      suppressWarnings(plotly::ggplotly(p)),
+      suppressWarnings(plotly::ggplotly(q)),
+      suppressWarnings(plotly::ggplotly(r)),
+      heights = c(0.45, 0.35, 0.20),
+      nrows   = 3,
+      shareX  = TRUE,
+      margin  = 0.05
+    ) %>%
+      plotly::layout(
+        xaxis = list(
+          rangeslider = list(visible = TRUE),
+          type        = "date"
+        ),
+        plot_bgcolor = "#e5ecf6"
+      )
+    
+  } else {
+    # fallback: just WL + temps if no flags/edits ------------------------------
+    plots <- plotly::subplot(
+      suppressWarnings(plotly::ggplotly(p)),
+      suppressWarnings(plotly::ggplotly(q)),
+      heights = c(0.5, 0.5),
+      nrows   = 2,
+      shareX  = TRUE,
+      margin  = 0.05
+    ) %>%
+      plotly::layout(
+        xaxis = list(
+          rangeslider = list(visible = TRUE),
+          type        = "date"
+        ),
+        plot_bgcolor = "#e5ecf6"
+      )
+  }
   
   return(plots)
 }

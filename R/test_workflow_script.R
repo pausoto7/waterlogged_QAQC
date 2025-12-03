@@ -1,12 +1,18 @@
 # test workflow
+#
+# Follows the same flow outlined in the waterlogged vingette 
 
+# ---------------------------------------------------------------------
 
+# NOTES:
 
 # misc
 
   # what to do with temp qaqc script - should we incorporate it into bind_hobo_files?
   # a universal function could probably be created for writing csv names
   # We're still missing a drift correct function - always make correction linear?
+  # once initial overall qaqc is done, I think there is value to creating new file names to
+    # make it easier to follow what function is for what and what order they're typically completed in
 
 
 # metadata file 
@@ -171,8 +177,107 @@ station_wl_qc2 <- adjust_WL_offset(input_data = station_wl_qc,
                                  log_root = "data/testing/processed",
                                  user = Sys.info()[["user"]])
 
+# -------------------------------------------------------------------------------
+  # would like to look into playing arounx with x axis changing with amount of zoom in? 
+    # Currently if you zoom in too far the date fully disappears
+
+source("R/plot_hydro_data.R")
 # plot
 waterlevel_qaqc_plot(qaqc_data = station_wl_qc2,
                      select_station = "WL_ALBR_ST_30")
+
+
+
+    ## WANT TO MAKE A DRIFT FUNCTION for WL and also other params! # ------------------------------------------
+
+# DISSOLVED OXYGEN -----------------------------------------------------------------------
+
+source("R/dissox_qaqc.R")
+
+      # NEEED TO ADD LOG FUNCTIONALITY
+station_do_dat<- dissox_qaqc(converted_percSat, "DO_COOK_WE_40") 
+
+
+source("R/plot_do_data.R")
+
+#do_baro_sat_wl<- left_join(station_wl_qc2, do_baro_sat_wl)
+
+plot_qaqc_timeseries(do_data = station_do_dat,
+                     wl_data = station_wl_qc2, 
+                     select_station = "DO_COOK_WE_40")
+
+
+
+
+#  Adjust logger NA -----------------------------------------------------------------------
+
+source("R/adjust_logger_NA.R")
+
+adjusted_WL_NA <- adjust_logger_NA( station_wl_qc2,
+    select_station = "WL_ALBR_ST_30",
+    metric = "waterlevel",              
+    reason_to_adjust = "ice", 
+    timestamp_start = "2025-06-04 07:00:00",
+    timestamp_end = "2025-06-09 00:00:00" ,  
+    keep_temp         = FALSE,
+    apply_to_all_data = FALSE,
+    manual_note = "Ice present - could see in field pics",         # required free-text explanation
+    log_root = "data/testing/processed",            # root folder where /logs lives
+) 
+  
+waterlevel_qaqc_plot(qaqc_data = adjusted_WL_NA,
+                     select_station = "WL_ALBR_ST_30")
+
+
+
+# adjust waterlevel zero ---------------------------------------------------------------------
+
+  # 2025-12-02
+
+wl_zero <- adjust_WL_zero(
+  input_data      = station_wl_qc,
+  select_station  = "WL_ALBR_ST_30",
+  change_value    = 0.05,
+  manual_note     = "Datum shifted +0.05 m to match survey benchmark",
+  log_root        = "data/testing/processed"
+)
+
+
+
+wl_zero <- adjust_WL_zero(
+  input_data      = station_wl_qc,
+  select_station  = "WL_ALBR_ST_30",
+  change_value    = NULL,
+  timestamp_start = "2025-02-10 00:00:00",
+  timestamp_end   = "2025-02-12 00:00:00",
+  manual_note     = "Zero set using observed dry period",
+  log_root        = "data/testing/processed"
+)
+
+
+
+
+
+
+# write clean data -------------------------------------------------------------------------
+source("R/write_clean_data.R")
+
+clean_WL <- write_clean_data(
+    input_data = adjusted_WL_NA,
+    path_to_output_folder = "data/testing/processed",
+    metric = "waterlevel"
+) 
+
+
+# get logger data ----------------------------------------------------------------------
+
+source("R/get_logger_data.R")
+
+res_wl <- get_logger_data(
+  path_to_data   = "data/testing/processed",
+  data_processing = "v1.0",
+  metric          = "waterlevel",
+  temporal_scale  = "monthly"
+)
 
 

@@ -1,0 +1,244 @@
+plot_qaqc_timeseries <- function(wl_data  = NULL,
+                                 do_data  = NULL,
+                                 temp_data = NULL,  # reserved for future use
+                                 select_station) {
+  
+  # ---- internal helpers ------------------------------------------------------
+  
+  normalize_df <- function(df) {
+    if (is.null(df)) return(NULL)
+    
+    req_cols <- c("site_station_code", "timestamp")
+    missing  <- setdiff(req_cols, names(df))
+    if (length(missing) > 0) {
+      stop(
+        "plot_qaqc_timeseries(): input data is missing required column(s): ",
+        paste(missing, collapse = ", ")
+      )
+    }
+    
+    if (!inherits(df$timestamp, "POSIXt")) {
+      df <- df %>%
+        dplyr::mutate(timestamp = lubridate::ymd_hms(timestamp))
+    }
+    
+    df %>%
+      dplyr::filter(site_station_code == select_station) %>%
+      dplyr::arrange(timestamp)
+  }
+  
+  build_qaqc_points <- function(df, code_col) {
+    if (is.null(df) || !code_col %in% names(df)) return(NULL)
+    
+    out <- df %>%
+      dplyr::select(timestamp, !!rlang::sym(code_col)) %>%
+      dplyr::filter(!is.na(.data[[code_col]]),
+                    .data[[code_col]] != "") %>%
+      dplyr::mutate(code = factor(.data[[code_col]])) %>%
+      dplyr::select(timestamp, code)
+    
+    if (nrow(out) == 0) return(NULL)
+    out
+  }
+  
+  build_shape_colour <- function(levels_vec) {
+    base_shapes <- c(16, 17, 15, 3, 4, 1, 2)  # circle, triangle, square, plus, cross, etc.
+    base_cols   <- c("navy", "black", "burlywood", "darkslategrey",
+                     "firebrick", "dodgerblue4", "darkgreen")
+    
+    n <- length(levels_vec)
+    shape_map <- base_shapes[seq_len(n)]
+    names(shape_map) <- levels_vec
+    
+    colour_map <- base_cols[seq_len(n)]
+    names(colour_map) <- levels_vec
+    
+    list(shape = shape_map, colour = colour_map)
+  }
+  
+  # ---- normalize / filter each dataset --------------------------------------
+  
+  wl_df <- normalize_df(wl_data)
+  do_df <- normalize_df(do_data)
+  # temp_data reserved for later – most of your temps already live in wl/do
+  
+  if (is.null(wl_df) && is.null(do_df)) {
+    stop("plot_qaqc_timeseries(): no data for station '", select_station,
+         "' in wl_data or do_data.")
+  }
+  
+  has_wl <- !is.null(wl_df) &&
+    all(c("waterlevel_m", "waterlevel_m_adj") %in% names(wl_df))
+  has_do <- !is.null(do_df) &&
+    all(c("do_mgl", "do_mgl_adj") %in% names(do_df))
+  
+  panels  <- list()
+  heights <- numeric(0)
+  
+  # ---- DO PANELS (if do_data provided) ---------------------------------------
+  
+  if (has_do) {
+    
+    # DO time series
+    p_do <- ggplot2::ggplot(do_df, ggplot2::aes(x = timestamp)) +
+      ggplot2::geom_line(
+        ggplot2::aes(y = do_mgl,     colour = "do_mgl"),
+        alpha = 0.5
+      ) +
+      ggplot2::geom_line(
+        ggplot2::aes(y = do_mgl_adj, colour = "do_mgl_adj")
+      ) +
+      ggplot2::scale_color_manual(values = c(
+        do_mgl     = "#264653",
+        do_mgl_adj = "#2a9d8f"
+      )) +
+      ggplot2::labs(
+        title  = paste("Dissolved Oxygen -", select_station),
+        y      = "DO (mg/L)",
+        x      = "",
+        colour = ""
+      ) +
+      ggplot2::theme_classic()
+    
+    panels  <- c(panels, list(suppressWarnings(plotly::ggplotly(p_do))))
+    heights <- c(heights, 0.30)
+    
+    # DO QAQC panel (from do_qaqc_code, if present)
+    do_flags <- build_qaqc_points(do_df, "do_qaqc_code")
+    
+    if (!is.null(do_flags)) {
+      levels_do <- levels(do_flags$code)
+      maps_do   <- build_shape_colour(levels_do)
+      
+      p_do_qaqc <- ggplot2::ggplot(
+        do_flags,
+        ggplot2::aes(
+          x      = timestamp,
+          y      = code,
+          shape  = code,
+          colour = code
+        )
+      ) +
+        ggplot2::geom_point(size = 1.8) +
+        ggplot2::scale_shape_manual(values = maps_do$shape) +
+        ggplot2::scale_color_manual(values = maps_do$colour) +
+        ggplot2::labs(
+          title = "DO QA/QC",
+          x     = "",
+          y     = "",
+          shape = "",
+          colour = ""
+        ) +
+        ggplot2::theme_classic()
+      
+      panels  <- c(panels, list(suppressWarnings(plotly::ggplotly(p_do_qaqc))))
+      heights <- c(heights, 0.18)
+    }
+  }
+  
+  # ---- WL PANELS (if wl_data provided) ---------------------------------------
+  
+  if (has_wl) {
+    
+    p_wl <- ggplot2::ggplot(wl_df, ggplot2::aes(x = timestamp)) +
+      ggplot2::geom_line(
+        ggplot2::aes(y = waterlevel_m, colour = "waterlevel_m"),
+        alpha = 0.5
+      ) +
+      ggplot2::geom_line(
+        ggplot2::aes(y = waterlevel_m_adj, colour = "waterlevel_m_adj")
+      )
+    
+    # overlay temps if present in wl_df
+    if ("watertemp_C" %in% names(wl_df)) {
+      p_wl <- p_wl +
+        ggplot2::geom_line(
+          ggplot2::aes(y = watertemp_C, colour = "watertemp_C"),
+          alpha = 0.5
+        )
+    }
+    if ("watertemp_C_adj" %in% names(wl_df)) {
+      p_wl <- p_wl +
+        ggplot2::geom_line(
+          ggplot2::aes(y = watertemp_C_adj, colour = "watertemp_C_adj")
+        )
+    }
+    if ("airtemp_C" %in% names(wl_df)) {
+      p_wl <- p_wl +
+        ggplot2::geom_line(
+          ggplot2::aes(y = airtemp_C, colour = "airtemp_C"),
+          alpha = 0.5
+        )
+    }
+    
+    p_wl <- p_wl +
+      ggplot2::scale_color_manual(values = c(
+        waterlevel_m     = "#233d4d",
+        waterlevel_m_adj = "#233d4d",
+        watertemp_C      = "#619b8a",
+        watertemp_C_adj  = "#619b8a",
+        airtemp_C        = "#fe7f2d"
+      )) +
+      ggplot2::labs(
+        title  = paste("Water Level & Temperatures -", select_station),
+        y      = "WL (m) / Temp (°C)",
+        x      = "",
+        colour = ""
+      ) +
+      ggplot2::theme_classic()
+    
+    panels  <- c(panels, list(suppressWarnings(plotly::ggplotly(p_wl))))
+    heights <- c(heights, 0.30)
+    
+    # WL QAQC panel (from wl_qaqc_code, if present)
+    wl_flags <- build_qaqc_points(wl_df, "wl_qaqc_code")
+    
+    if (!is.null(wl_flags)) {
+      levels_wl <- levels(wl_flags$code)
+      maps_wl   <- build_shape_colour(levels_wl)
+      
+      p_wl_qaqc <- ggplot2::ggplot(
+        wl_flags,
+        ggplot2::aes(
+          x      = timestamp,
+          y      = code,
+          shape  = code,
+          colour = code
+        )
+      ) +
+        ggplot2::geom_point(size = 1.8) +
+        ggplot2::scale_shape_manual(values = maps_wl$shape) +
+        ggplot2::scale_color_manual(values = maps_wl$colour) +
+        ggplot2::labs(
+          title = "WL QA/QC",
+          x     = "Timestamp",
+          y     = "",
+          shape = "",
+          colour = ""
+        ) +
+        ggplot2::theme_classic()
+      
+      panels  <- c(panels, list(suppressWarnings(plotly::ggplotly(p_wl_qaqc))))
+      heights <- c(heights, 0.18)
+    }
+  }
+  
+  # ---- combine panels --------------------------------------------------------
+  
+  plots <- plotly::subplot(
+    panels,
+    nrows   = length(panels),
+    shareX  = TRUE,
+    heights = heights,
+    margin  = 0.03
+  ) %>%
+    plotly::layout(
+      xaxis = list(
+        rangeslider = list(visible = TRUE),
+        type        = "date"
+      ),
+      plot_bgcolor = "#e5ecf6"
+    )
+  
+  return(plots)
+}
