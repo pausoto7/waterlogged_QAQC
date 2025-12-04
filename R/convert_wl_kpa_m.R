@@ -1,34 +1,5 @@
-#' Waterlevel conversion (kPa -> m) using barometric compensation
-#'
-#' @param input_data Dataframe containing timeseries of raw water level and baro:
-#'   required cols: site_station_code, timestamp, waterpress_kPa,
-#'                  watertemp_C, baro_data
-#' @param select_station Character: either a single site_station_code,
-#'   or "all"/NA/NULL to process all stations in input_data.
-#' @param reference_data_path Character: path to CSV with manual measurements,
-#'   expected (at minimum):
-#'   - site_station_code
-#'   - timestamp
-#'   - stage_m  (if reference_type = "stage")
-#'   - depth_m  (if reference_type = "depth")
-#'   plus any extra columns (e.g., site_comments, timestamp_comments)
-#' @param reference_type Either "stage" or "depth" (default = "stage").
-#'   Controls which reference column is used.
-#' @param select_measurement Integer; which reference row to use (default = 1).
-#'   Applied per station (for ALL mode it is the nth row *for each station*).
-#' @param logger_type_expected Pattern to check in input_data$logger_type
-#'   for QA (default "u20").
-#' @param path_to_output_folder Folder where yearly /processed CSVs will be written.
-#'
-#' @return list(
-#'   site_wl   = dataframe of converted waterlevel (single or all stations),
-#'   ref_dat   = dataframe of reference measurements used,
-#'   wl_plot   = QAQC plot (plotly), single or facetted by station
-#' )
-#' @export
 
-
-source("R/step3_utils.R")
+source("R/convert_wl_kpa_m_helpers.R")
 
 convert_waterlevel_kPa_m <- function(input_data,
                                      select_station,

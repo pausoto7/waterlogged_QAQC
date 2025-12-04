@@ -10,9 +10,10 @@
 
   # what to do with temp qaqc script - should we incorporate it into bind_hobo_files?
   # a universal function could probably be created for writing csv names
-  # We're still missing a drift correct function - always make correction linear?
   # once initial overall qaqc is done, I think there is value to creating new file names to
     # make it easier to follow what function is for what and what order they're typically completed in
+  ##### WANT TO MAKE A DRIFT FUNCTION for WL and also other params! #######
+  # Add field data functionality
 
 
 # metadata file 
@@ -23,15 +24,21 @@
 # field data
   
   # How can we ensure people are putting in reference data in the correct time zone. 
+  
 
 
-# step 1 ----------------------------------------------------------------------------------
+
+
+
+
+# STEP 1 - GRAB ALL CSV FILES AND PUT INTO SINGLE OBJECT FOR EACH METRIC -----------------------------------------------
+  # PRELIM QAQC
 
 # still need to add tidbit QAQC
 # if you have multiple metric types in one folder; this function will give three of the same errors for this. Could be simplified so only one is given. 
 # Low/Range vs high range conductivity read file issue - see issue in github Issues
 
-source("R/step1.R") # bind_hobo_files -> output v0.1
+source("R/bind_hobo_files.R") # bind_hobo_files -> output v0.1
 
 baro_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/baro", 
                               path_to_output_folder = "data/testing/processed", 
@@ -49,13 +56,40 @@ cond_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/COND",
                             path_to_output_folder = "data/testing/processed", 
                             metadata_path = "data/testing/raw/testing_metadata.csv")
 
-# step 2-------------------------------------------------------------------------------
+
+# STEP 2 -  QAQC BAROMETRIC DATA ------------------------------------------------------------------
+   # CHECK FOR UNUSUAL TEMPS, PRESSURS, SPIKES OR FLATLINES IN DATA
+   # BELOW FUNCTION USES BAROMETRIC_QAQC.R FUNCTION TO RUN. ALL DATA DOES NOT HAVE TO BE RUN AT ONCE (e.g only one station can be run at a time). 
+
+source("R/baro_qaqc_all.R")
 
 
-# Further QC needs to be done on the QC columns that are added in this step. I think some/all the type they're not adding notes as needed. 
-    # e.g. if diff baro is used, there should be a col that says what the correction is compared to first baro used
+all_checked_baro_data <- barometric_qaqc_all(
+  baro_data_path        = "data/testing/processed",
+  metadata_path         = "data/testing/raw/testing_metadata.csv",
+  path_to_output_folder = "data/testing/processed",
+  log_root              = "data/testing/processed",
+  temp_low_limit        = -35,
+  temp_high_limit       = 45, 
+  pressure_low_kpa     = 85,
+  pressure_high_kpa    = 105,
+  spike_threshold_kpa  = 1.5,
+  flatline_n           = 6
+)
 
-source("R/step2.R") # add nearest baro -> output v0.2
+
+# STEP 3 - BASED OFF OF A SPECIFIC STATION AN APPROPRIATE BARO STATION CAN BE SELECT -------------------------------------------
+  # PREVIOUSLY, THIS WAS DONE ENTIRELY BASED OFF OF PROXIMITY; HOWEVER, FUNCTIONALITY TO CHOOSE
+    # A SPECIFIC STATION WAS ADDED IN CASE CLOSEST STATION WAS NOT APPROPRIATE 
+
+
+  # Further QC needs to be done on the QC columns that are added in this step. I think some/all the type they're not adding notes as needed. 
+     # e.g. if diff baro is used, there should be a col that says what the correction is compared to first baro used
+  # "baro_site_selection" non auto options could benefit from more testing. 
+     # to run the non-auto functionality enter a specific baro station name.
+
+
+source("R/add_nearest_baro.R") # add nearest baro -> output v0.2
 
 input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
                                   path_to_output_folder = "data/testing/processed", 
@@ -73,11 +107,11 @@ DO_with_Baro <- add_nearest_baro(input_data = DO_bound[[1]],
                                  metadata_path = "data/testing/raw/testing_metadata.csv")
 
 
-# step 3--------------------------------------------------------------------------------
+# STEP 3 - CONVERT WATERLEVEL FROM PRESSURE TO m's --------------------------------------------------------------------------------
 
 # To make more robust - in the future could make it so select_station accepts a list of stations
 
-source("R/step3.R") # convert_waterlevel_kPa_m -> output v0.3
+source("R/convert_wl_kpa_m.R") # convert_waterlevel_kPa_m -> output v0.3
 
 converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
                                            select_station = "all",
@@ -87,21 +121,6 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
                                            logger_type_expected = "u20",
                                            path_to_output_folder= "data/testing/processed") 
 
-
-# get logger data --------------------------------------------------------------------
-
-# haven't qaqc'd much yet beause need a complete V1.0 dataset to do so - haven't gotten there yet
-
-source("R/get_logger_data.R")
-
-# need to go back and test this once I have "clean" data - aka V1.0
-# I've noticed a lot of col's are hard coded in - that will likely need to be fixed later on
-res_wl <- get_logger_data(
-  path_to_data   = "data/testing/processed",
-  data_processing = "v0.1",
-  metric          = "gvhgvm",
-  temporal_scale  = "none"
-)
 
 
 # convert do mgl percsat -----------------------------------------------------------------
@@ -116,6 +135,9 @@ source("R/convert_do_mgl_percsat.R")
 converted_percSat <- convert_do_mgl_percsat(DO_with_Baro[[1]],
                                    output_dir = "data/testing/processed",
                                    version_label = "v0.3")
+
+
+
 
 
 # waterlevel_qaqc -----------------------------------------------------------------------
@@ -153,7 +175,7 @@ station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC,
 
 # plot hydro -----------------------------------------------------------------------------------
 
-# symbology for flags and edits could be a little clearer if we wanted to
+# Add field data to qaqc plots!! 
 
 source("R/plot_hydro_data.R")
 
@@ -165,7 +187,8 @@ waterlevel_qaqc_plot(qaqc_data = station_wl_qc,
 # adjust water level offset --------------------------------------------------------------
   #(PREVIOUSLY, ADJUST WATER LEVEL CABLE BREAK - RENAMED TO MAKE MORE UNIVERSAL)
 
-# shouldn't we have to add what direction and how much to move this offset??
+# shouldn't we have to add what direction and how much to move this offset?? We just assume that the start/end is right? 
+# I think adding a manual offset could make sense too
 
 source("R/adjust_wl_offset.R")
 
@@ -188,7 +211,6 @@ waterlevel_qaqc_plot(qaqc_data = station_wl_qc2,
 
 
 
-    ## WANT TO MAKE A DRIFT FUNCTION for WL and also other params! # ------------------------------------------
 
 # DISSOLVED OXYGEN -----------------------------------------------------------------------
 
@@ -232,7 +254,9 @@ waterlevel_qaqc_plot(qaqc_data = adjusted_WL_NA,
 
 # adjust waterlevel zero ---------------------------------------------------------------------
 
-  # 2025-12-02
+
+
+# testing when change value is manually input
 
 wl_zero <- adjust_WL_zero(
   input_data      = station_wl_qc,
@@ -243,7 +267,7 @@ wl_zero <- adjust_WL_zero(
 )
 
 
-
+# testing "auto" change value - unsure about the science behind this. 
 wl_zero <- adjust_WL_zero(
   input_data      = station_wl_qc,
   select_station  = "WL_ALBR_ST_30",
@@ -270,6 +294,10 @@ clean_WL <- write_clean_data(
 
 
 # get logger data ----------------------------------------------------------------------
+
+  # This function does different stuff depending on what version of data the user is on 
+    # - I wonder if it could benefit from being split up? What purpose does this serve?
+
 
 source("R/get_logger_data.R")
 

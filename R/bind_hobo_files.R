@@ -2,7 +2,7 @@
 library(tidyverse)
 
 
-source("R/step1_utils.R")
+source("R/bind_hobo_files_helpers.R")
 
 bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_path,  timestamp_timezone = "UTC") {
   
