@@ -1,181 +1,145 @@
-source("R/barometric_qaqc.R")
-
-barometric_qaqc_all <- function(baro_data_path,
-                                metadata_path,
-                                path_to_output_folder = baro_data_path,
-                                log_root             = path_to_output_folder,
-                                user                 = Sys.info()[["user"]],
-                                version_label        = "v0.1",
-                                temp_low_limit       = -40,
-                                temp_high_limit      = 50,
-                                pressure_low_kpa     = 85,
-                                pressure_high_kpa    = 105,
-                                spike_threshold_kpa  = 1.5,
-                                flatline_n           = 6) {
-  
-  # small helper (copied from add_nearest_baro)
+barometric_qaqc_all <- function(
+    baro_data_path,
+    metadata_path,
+    path_to_output_folder,
+    log_root,
+    temp_low_limit     = -40,
+    temp_high_limit    = 50,
+    pressure_low_kpa   = 85,
+    pressure_high_kpa  = 105,
+    spike_threshold_kpa = 1.5,
+    flatline_n          = 6,
+    user = Sys.info()[["user"]]
+) {
+  # helper to escape regex specials
   escape_regex <- function(x) gsub("([][{}()+*^$|\\.?\\\\-])", "\\\\\\1", x)
   
-  # ---- 1. Read metadata and find barometric stations -------------------------
   metadata <- QAQC_metadata(metadata_path)
   
-  baro_meta <- metadata %>%
-    dplyr::filter(.data$metric == "barometric")
+  baro_sites <- metadata %>%
+    dplyr::filter(metric == "barometric") %>%
+    dplyr::pull(site_station_code) %>%
+    unique()
   
-  baro_stations <- unique(baro_meta$site_station_code)
-  
-  if (!length(baro_stations)) {
+  if (!length(baro_sites)) {
     stop("barometric_qaqc_all(): No barometric stations found in metadata (metric == 'barometric').")
   }
   
-  # Ensure output root exists
-  if (!dir.exists(path_to_output_folder)) {
-    dir.create(path_to_output_folder, recursive = TRUE)
-  }
+  all_baro_list <- list()
   
-  processed_summary <- dplyr::tibble(
-    site_station_code = character(),
-    n_rows_written    = integer(),
-    files_written     = character()
-  )
-  
-  # ---- 2. Loop over each barometric station ---------------------------------
-  for (stn in baro_stations) {
-    
+  for (stn in baro_sites) {
     message("\n--- Barometric QA/QC for station: ", stn, " ---")
     
-    # Find all BARO files for this station
-    baro_pattern <- paste0("^", escape_regex(stn), "_BARO_.*\\.csv$")
-    
-    baro_files <- list.files(
-      path       = baro_data_path,
-      pattern    = baro_pattern,
+    pattern <- paste0("^", escape_regex(stn), "_BARO_.*\\.csv$")
+    file_paths <- list.files(
+      baro_data_path,
+      pattern    = pattern,
       full.names = TRUE,
       recursive  = TRUE
     )
     
-    if (!length(baro_files)) {
-      warning("barometric_qaqc_all(): No BARO files found for station ", stn,
+    if (!length(file_paths)) {
+      warning("  No BARO files found for station ", stn,
               " under ", baro_data_path, ". Skipping.")
       next
     }
     
-    # ---- 2a. Read and combine all files for this station --------------------
-    baro_raw <- purrr::map_df(
-      baro_files,
-      ~ utils::read.csv(.x, stringsAsFactors = FALSE, check.names = FALSE)
+    raw_baro <- dplyr::bind_rows(
+      lapply(file_paths, utils::read.csv, stringsAsFactors = FALSE, check.names = FALSE)
     )
     
-    # Ensure there is a site_station_code column
-    if (!"site_station_code" %in% names(baro_raw)) {
-      baro_raw$site_station_code <- stn
-    }
-    
-    # Ensure timestamp column exists and is parsed
-    if (!"timestamp" %in% names(baro_raw)) {
+    # ensure timestamp
+    if (!"timestamp" %in% names(raw_baro)) {
       ts_cand <- intersect(
         c("timestamp", "Timestamp", "Date Time", "datetime", "date_time"),
-        names(baro_raw)
+        names(raw_baro)
       )
       if (!length(ts_cand)) {
-        warning("barometric_qaqc_all(): No timestamp column found for station ", stn,
-                " in files:\n  ", paste(basename(baro_files), collapse = ", "))
+        warning("  No timestamp column found for station ", stn, ". Skipping.")
         next
       }
-      baro_raw <- dplyr::rename(baro_raw, timestamp = !!rlang::sym(ts_cand[1]))
+      raw_baro <- dplyr::rename(raw_baro, timestamp = !!rlang::sym(ts_cand[1]))
+    }
+    raw_baro$timestamp <- lubridate::ymd_hms(raw_baro$timestamp, tz = "UTC")
+    
+    # ensure site_station_code
+    if (!"site_station_code" %in% names(raw_baro)) {
+      raw_baro$site_station_code <- stn
     }
     
-    baro_raw$timestamp <- lubridate::ymd_hms(baro_raw$timestamp, tz = "UTC")
-    
-    baro_raw <- baro_raw %>%
-      dplyr::filter(.data$site_station_code == !!stn) %>%
-      dplyr::arrange(.data$timestamp)
-    
-    if (!nrow(baro_raw)) {
-      warning("barometric_qaqc_all(): After filtering, no rows remain for station ", stn, ". Skipping.")
-      next
-    }
-    
-    # ---- 2b. Run single-station barometric_qaqc -----------------------------
-    baro_qc <- barometric_qaqc(
-      input_data          = baro_raw,
-      select_station      = stn,
-      log_root            = log_root,
-      user                = user,
-      temp_low_limit      = temp_low_limit,
-      temp_high_limit     = temp_high_limit,
-      pressure_low_kpa    = pressure_low_kpa,
-      pressure_high_kpa   = pressure_high_kpa,
+    # run single-station QA/QC (this keeps all original cols + *_adj + baro_qaqc_*)
+    checked <- barometric_qaqc(
+      input_data         = raw_baro,
+      select_station     = stn,
+      log_root           = log_root,
+      user               = user,
+      temp_low_limit     = temp_low_limit,
+      temp_high_limit    = temp_high_limit,
+      pressure_low_kpa   = pressure_low_kpa,
+      pressure_high_kpa  = pressure_high_kpa,
       spike_threshold_kpa = spike_threshold_kpa,
       flatline_n          = flatline_n
     )
     
-    if (!is.data.frame(baro_qc) || !nrow(baro_qc)) {
-      warning("barometric_qaqc_all(): barometric_qaqc() returned no rows for station ", stn, ". Skipping write.")
-      next
-    }
+    # simple printed summary (not returned)
+    n_tot   <- nrow(checked)
+    n_flag  <- sum(!is.na(checked$baro_qaqc_code))
+    n_spike <- sum(checked$baro_qaqc_code == "SPIKE", na.rm = TRUE)
+    n_flat  <- sum(checked$baro_qaqc_code == "FLATLINE", na.rm = TRUE)
+    n_press <- sum(checked$baro_qaqc_code == "PRESSURE_RANGE", na.rm = TRUE)
     
-    # Ensure timestamp is POSIXct
-    if (!lubridate::is.POSIXct(baro_qc$timestamp)) {
-      baro_qc$timestamp <- lubridate::ymd_hms(baro_qc$timestamp, tz = "UTC")
-    }
+    message("  Total rows:      ", n_tot)
+    message("  Any flags:       ", n_flag)
+    message("    SPIKE:         ", n_spike)
+    message("    FLATLINE:      ", n_flat)
+    message("    PRESSURE_RANGE:", n_press)
     
-    # ---- 2c. Split by year and write QC’d files -----------------------------
-    years <- unique(lubridate::year(baro_qc$timestamp))
-    years <- years[!is.na(years)]
+    # store for combined return
+    all_baro_list[[stn]] <- checked
     
-    if (!length(years)) {
-      warning("barometric_qaqc_all(): Could not determine year(s) from timestamps for station ", stn, ". Skipping.")
-      next
-    }
+    # ---- write yearly v0.1 BARO files (adjusted) ----
+    checked_year <- checked %>%
+      dplyr::mutate(year = lubridate::year(timestamp))
     
-    files_written <- character()
+    years_i <- sort(unique(checked_year$year))
     
-    for (yy in years) {
-      site_year <- baro_qc[lubridate::year(baro_qc$timestamp) == yy, , drop = FALSE]
-      if (!nrow(site_year)) next
+    for (yy in years_i) {
+      sub <- checked_year %>%
+        dplyr::filter(year == yy) %>%
+        dplyr::arrange(timestamp)
+      
+      if (!nrow(sub)) next
+      
+      start_date <- min(lubridate::as_date(sub$timestamp))
+      end_date   <- max(lubridate::as_date(sub$timestamp))
+      
+      start_str <- gsub("\\D", "", as.character(start_date))
+      end_str   <- gsub("\\D", "", as.character(end_date))
       
       year_dir <- file.path(path_to_output_folder, yy)
       proc_dir <- file.path(year_dir, "processed")
       if (!dir.exists(year_dir)) dir.create(year_dir, recursive = TRUE)
       if (!dir.exists(proc_dir)) dir.create(proc_dir, recursive = TRUE)
       
-      start_date <- suppressWarnings(min(lubridate::as_date(site_year$timestamp), na.rm = TRUE))
-      end_date   <- suppressWarnings(max(lubridate::as_date(site_year$timestamp), na.rm = TRUE))
+      sub_write <- sub %>%
+        dplyr::select(-year)
+      sub_write$timestamp <- format(sub_write$timestamp, tz = "UTC", usetz = FALSE)
       
-      start_j <- gsub("\\D", "", as.character(start_date))
-      end_j   <- gsub("\\D", "", as.character(end_date))
+      out_name <- sprintf("%s_BARO_%s_%s_v0.1.csv", stn, start_str, end_str)
+      out_path <- file.path(proc_dir, out_name)
       
-      dat_write <- site_year
-      dat_write$timestamp <- format(dat_write$timestamp, "%Y-%m-%d %H:%M:%S")
-      
-      file_out <- file.path(
-        proc_dir,
-        paste0(
-          stn, "_BARO_",
-          start_j, "_", end_j, "_",
-          version_label, ".csv"
-        )
-      )
-      
-      utils::write.csv(dat_write, file_out, row.names = FALSE)
-      
-      message("Barometric QA/QC for ", stn,
-              " written to ", yy,
-              " (", basename(file_out), ")")
-      
-      files_written <- c(files_written, file_out)
+      utils::write.csv(sub_write, out_path, row.names = FALSE)
+      message("  QA/QC BARO written: ", basename(out_path))
     }
-    
-    processed_summary <- dplyr::bind_rows(
-      processed_summary,
-      dplyr::tibble(
-        site_station_code = stn,
-        n_rows_written    = nrow(baro_qc),
-        files_written     = paste(basename(files_written), collapse = "; ")
-      )
-    )
   }
   
-  invisible(processed_summary)
+  # ---- RETURN: combined QA/QC’d BARO data (bind_hobo_files-style long DF) ----
+  if (!length(all_baro_list)) {
+    warning("barometric_qaqc_all(): No stations processed successfully; returning empty tibble.")
+    return(tibble::tibble())
+  }
+  
+  combined <- dplyr::bind_rows(all_baro_list)
+  rownames(combined) <- NULL
+  combined
 }

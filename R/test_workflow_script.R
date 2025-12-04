@@ -14,6 +14,7 @@
     # make it easier to follow what function is for what and what order they're typically completed in
   ##### WANT TO MAKE A DRIFT FUNCTION for WL and also other params! #######
   # Add field data functionality
+  # Would be nice to have a function to compare visually between stations - probably similar code to plot_qaqc_timeseries but would be same metric diff stations
 
 
 # metadata file 
@@ -23,7 +24,7 @@
 
 # field data
   
-  # How can we ensure people are putting in reference data in the correct time zone. 
+  # How can we ensure people are putting in reference data in the correct time zone (during daylight savings periods especially). 
   
 
 
@@ -61,6 +62,9 @@ cond_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/COND",
    # CHECK FOR UNUSUAL TEMPS, PRESSURS, SPIKES OR FLATLINES IN DATA
    # BELOW FUNCTION USES BAROMETRIC_QAQC.R FUNCTION TO RUN. ALL DATA DOES NOT HAVE TO BE RUN AT ONCE (e.g only one station can be run at a time). 
 
+
+  # this qaqc function + plotting could use some more robustness testing in terms of weird inputs 
+
 source("R/baro_qaqc_all.R")
 
 
@@ -76,6 +80,17 @@ all_checked_baro_data <- barometric_qaqc_all(
   spike_threshold_kpa  = 1.5,
   flatline_n           = 6
 )
+
+
+source("R/plot_qaqc_timeseries.R")
+
+plot_qaqc_timeseries(
+  wl_data   = NULL,
+  do_data   = NULL,
+  baro_data = all_checked_baro_data,   # from barometric_qaqc(), optional
+  select_station = "BARO_DARL_ST_30"
+)
+
 
 
 # STEP 3 - BASED OFF OF A SPECIFIC STATION AN APPROPRIATE BARO STATION CAN BE SELECT -------------------------------------------
@@ -307,5 +322,32 @@ res_wl <- get_logger_data(
   metric          = "waterlevel",
   temporal_scale  = "monthly"
 )
+
+
+# CONDUCTIVITY QAQC -----------------------------------------------------------------------------------
+
+# getting warnings#####################################################################
+
+source("R/conductivity_qaqc_all.R")
+
+# Run conductivity QAQC for all conductivity stations in metadata ----------
+all_checked_cond_data <- conductivity_qaqc_all(
+  cond_data_path            = "data/testing/processed",
+  metadata_path             = "data/testing/raw/testing_metadata.csv",
+  path_to_output_folder     = "data/testing/processed",
+  log_root                  = "data/testing/processed",
+  temp_low_limit_C          = -2,
+  temp_high_limit_C         = 40,
+  disturbance_threshold_uScm = 200,
+  dry_threshold_uScm        = 10,
+  air_water_diff_threshold_C = 2
+)
+
+# Quick sanity check for one station --------------------------------------
+cond_mile_we_40 <- all_checked_cond_data |>
+  dplyr::filter(site_station_code == "CO_MILE_WE_40")
+
+dplyr::glimpse(cond_mile_we_40)
+table(cond_mile_we_40$cond_qaqc_code, useNA = "ifany")
 
 
