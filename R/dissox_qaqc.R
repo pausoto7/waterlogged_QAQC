@@ -22,20 +22,23 @@ dissox_qaqc <- function(input_data,
     )
   }
   
-  # ---- 1. Filter to station ----
+  # ---- 1. Filter to station & sort ----
   output_data <- input_data %>%
     dplyr::filter(.data$site_station_code == !!select_station) %>%
     dplyr::arrange(.data$timestamp)
   
-  rownames(output_data) <- NULL
-  n <- nrow(output_data)
-  if (n == 0) {
+  if (nrow(output_data) == 0) {
     warning("dissox_qaqc(): no rows for station ", select_station)
     return(output_data)
   }
   
-  # ---- 2. Add internal semantic names + *_adj columns ----
-  # Internal DO temp / baro temp names (do NOT require them on input)
+  # Ensure timestamp is POSIXct
+  if (!inherits(output_data$timestamp, "POSIXct")) {
+    output_data$timestamp <- lubridate::ymd_hms(output_data$timestamp, tz = "UTC")
+  }
+  
+  # ---- 2. Initialise internal temp fields + *_adj columns --------------------
+  # Internal temp names (consistent with plotting / other funcs)
   if (!"watertemp_C_do" %in% names(output_data)) {
     output_data$watertemp_C_do <- output_data$watertemp_C
   }
@@ -43,7 +46,7 @@ dissox_qaqc <- function(input_data,
     output_data$airtemp_C_baro <- output_data$airtemp_C
   }
   
-  # Adjusted DO / temp columns
+  # Only initialise *_adj if they don't already exist
   if (!"do_mgl_adj" %in% names(output_data)) {
     output_data$do_mgl_adj <- output_data$do_mgl
   }
@@ -54,235 +57,180 @@ dissox_qaqc <- function(input_data,
     output_data$watertemp_C_do_adj <- output_data$watertemp_C_do
   }
   
-  # QAQC meta columns (wide; kept for now)
-  if (!"do_qaqc_code" %in% names(output_data)) {
-    output_data$do_qaqc_code <- NA_character_
-  }
-  if (!"do_qaqc_adj" %in% names(output_data)) {
-    output_data$do_qaqc_adj <- NA_character_
-  }
-  if (!"do_qaqc_note" %in% names(output_data)) {
-    output_data$do_qaqc_note <- NA_character_
-  }
+  # ---- 3. Derived helpers & flags (vectorised) -------------------------------
+  # All conditions are based on the *current* adj values so we don't
+  # overwrite manual corrections.
+  output_data <- output_data %>%
+    dplyr::mutate(
+      # temp difference for dryness test (using current temp adj)
+      air_watertemp_diff = airtemp_C_baro - watertemp_C_do_adj,
+      
+      # DO flags (using adj as working column)
+      do_error         = (do_mgl == -888.88) | (watertemp_C_do == -888.88),
+      do_neg_between   = !is.na(do_mgl_adj) & do_mgl_adj < 0  & do_mgl_adj >= -1,
+      do_neg_lt_minus1 = !is.na(do_mgl_adj) & do_mgl_adj < -1,
+      do_high          = !is.na(do_mgl_adj) & do_mgl_adj > 21,
+      
+      # temperature flags (using adj as working col)
+      temp_flag_ice       = !is.na(watertemp_C_do_adj) & watertemp_C_do_adj < 0.3,
+      temp_neg_between    = !is.na(watertemp_C_do_adj) & watertemp_C_do_adj < 0 & watertemp_C_do_adj > -1,
+      temp_neg_leq_minus1 = !is.na(watertemp_C_do_adj) & watertemp_C_do_adj <= -1
+    )
   
-  # ---- 3. Derived variables ----
-  output_data$air_watertemp_diff <- output_data$airtemp_C_baro - output_data$watertemp_C_do
+  # ---- 4. Apply DO / temp adjustments (vectorised) ---------------------------
+  output_data <- output_data %>%
+    dplyr::mutate(
+      # DO adjustments, applied to adj column only
+      do_mgl_adj = dplyr::case_when(
+        do_error | do_neg_lt_minus1 | do_high ~ NA_real_,
+        do_neg_between                         ~ 0,
+        TRUE                                   ~ do_mgl_adj
+      ),
+      do_percsat_adj = dplyr::case_when(
+        do_error | do_neg_lt_minus1 | do_high ~ NA_real_,
+        do_neg_between                         ~ 0,
+        TRUE                                   ~ do_percsat_adj
+      ),
+      # DO temp adjustments
+      watertemp_C_do_adj = dplyr::case_when(
+        temp_neg_leq_minus1 ~ NA_real_,
+        temp_neg_between    ~ 0,
+        TRUE                ~ watertemp_C_do_adj
+      )
+    )
   
-  # ---- 4. Row-wise QAQC (same logic as original) ----
-  for (i in seq_len(n)) {
-    
-    # -------- DO QAQC --------
-    if (!is.na(output_data$do_mgl[i])) {
-      
-      # logger error code for DO
-      if (output_data$do_mgl[i] == -888.88) {
-        output_data$do_qaqc_code[i]    <- "DO_ERROR"
-        output_data$do_qaqc_adj[i]     <- "REMOVED"
-        output_data$do_qaqc_note[i]    <- "Logger error code"
-        output_data$do_mgl_adj[i]      <- NA
-        output_data$do_percsat_adj[i]  <- NA
-      }
-      
-      # logger error code for temp
-      if (output_data$watertemp_C_do[i] == -888.88) {
-        output_data$do_qaqc_code[i]       <- "TEMP_ERROR"
-        output_data$do_qaqc_adj[i]        <- "REMOVED"
-        output_data$do_qaqc_note[i]       <- "Logger error code"
-        output_data$watertemp_C_do_adj[i] <- NA
-      }
-      
-      # negative DO in [-1, 0)
-      if (output_data$do_mgl[i] < 0 && output_data$do_mgl[i] >= -1) {
-        output_data$do_mgl_adj[i]     <- 0
-        output_data$do_percsat_adj[i] <- 0
-        output_data$do_qaqc_code[i]   <- "NEGATIVE_DO"
-        output_data$do_qaqc_adj[i]    <- "REPLACED"
-        output_data$do_qaqc_note[i]   <- "DO within bounds of 0 to -1 corrected to 0"
-      }
-      
-      # negative DO < -1
-      if (output_data$do_mgl[i] < -1) {
-        output_data$do_mgl_adj[i]     <- NA
-        output_data$do_percsat_adj[i] <- NA
-        output_data$do_qaqc_code[i]   <- "NEGATIVE_DO"
-        output_data$do_qaqc_adj[i]    <- "REMOVED"
-        output_data$do_qaqc_note[i]   <- "DO less than -1 removed"
-      }
-      
-      # high DO > 21 mg/L
-      if (output_data$do_mgl[i] > 21) {
-        output_data$do_mgl_adj[i]     <- NA
-        output_data$do_percsat_adj[i] <- NA
-        output_data$do_qaqc_code[i]   <- "OUTLIER_DO"
-        output_data$do_qaqc_adj[i]    <- "REMOVED"
-        output_data$do_qaqc_note[i]   <- "DO greater than 21 mg/L removed"
-      }
-    }
-    
-    # -------- Temperature QAQC (DO temp) --------
-    if (!is.na(output_data$watertemp_C_do[i])) {
-      
-      # flag ice
-      if (output_data$watertemp_C_do[i] < 0.3) {
-        output_data$do_qaqc_code[i] <- "FLAG_ICE"
-      }
-      
-      # small negative temps in [-1, 0)
-      if (output_data$watertemp_C_do[i] < 0 &&
-          output_data$watertemp_C_do[i] > -1) {
-        output_data$do_qaqc_code[i] <- "NEGATIVE_TEMP"
-        output_data$do_qaqc_adj[i]  <- "REPLACED"
-        output_data$do_qaqc_note[i] <- "Water temp within bounds of 0 to -1 corrected to 0"
-      }
-      
-      # temps ≤ -1
-      if (output_data$watertemp_C_do[i] <= -1) {
-        output_data$watertemp_C_do_adj[i] <- NA
-        output_data$do_qaqc_note[i]       <- "water temp less than or equal to -1 removed"
-        output_data$do_qaqc_adj[i]        <- "REMOVED"
-        output_data$do_qaqc_code[i]       <- "LOGGER_ICE"
-      }
-    }
-  }
+  # ---- 5. 12-point dry flag (FLAG_DO_DRY) using adj DO -----------------------
+  n <- nrow(output_data)
+  output_data$flag_do_dry <- FALSE
   
-  # ---- 5. 12-point FLAG_DRY logic ----
   if (n >= 12) {
     for (j in 1:(n - 11)) {
-      if (!is.na(output_data$do_mgl[j])) {
-        window_diff <- output_data$air_watertemp_diff[j:(j + 11)]
-        window_do   <- output_data$do_percsat[j:(j + 11)]
-        
-        if (any(!is.na(window_diff))) {
-          if (max(abs(window_diff), na.rm = TRUE) <= 2 &&
-              min(window_do, na.rm = TRUE) >= 100) {
-            output_data$do_qaqc_code[j:(j + 11)] <- "FLAG_DRY"
-          }
+      window_diff <- output_data$air_watertemp_diff[j:(j + 11)]
+      window_do   <- output_data$do_percsat_adj[j:(j + 11)]
+      
+      if (any(!is.na(window_diff)) && any(!is.na(window_do))) {
+        if (max(abs(window_diff), na.rm = TRUE) <= 2 &&
+            min(window_do, na.rm = TRUE) >= 100) {
+          output_data$flag_do_dry[j:(j + 11)] <- TRUE
         }
       }
     }
   }
   
-  # ---------------------------------------------------------------------------
-  # 6. Build QA/QC log rows (auto log, no manual_note required)
-  # ---------------------------------------------------------------------------
-  metric    <- "DO"
-  run_time  <- Sys.time()
-  fun_name  <- "dissox_qaqc"
-  log_rows_list <- list()
+  # ---- 6. Build QAQC log rows (WL-style rules list) -------------------------
+  metric      <- "DO"
+  fun_name    <- "dissox_qaqc"
+  action      <- "AUTO_QAQC"
+  manual_note <- "Automatic dissolved oxygen QA/QC; no manual note provided."
+  run_time    <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
   
-  # A) Events where we actually changed values (REMOVED / REPLACED)
-  changed <- output_data %>%
-    dplyr::filter(!is.na(.data$do_qaqc_adj))
-  
-  if (nrow(changed) > 0) {
-    # distinguish DO-related vs TEMP-related codes for 'field'
-    temp_codes <- c("TEMP_ERROR", "NEGATIVE_TEMP", "LOGGER_ICE")
-    
-    grp <- changed %>%
-      dplyr::group_by(do_qaqc_code, do_qaqc_adj) %>%
-      dplyr::summarise(
-        ts_vec     = list(.data$timestamp),
-        note_first = dplyr::first(.data$do_qaqc_note),
-        .groups    = "drop"
-      )
-    
-    for (k in seq_len(nrow(grp))) {
-      code_k   <- grp$do_qaqc_code[k]
-      adj_k    <- grp$do_qaqc_adj[k]      # "REMOVED" / "REPLACED"
-      ts_vec_k <- grp$ts_vec[[k]]
-      note_k   <- grp$note_first[k]
-      
-      field_k <- if (code_k %in% temp_codes) {
-        "watertemp_C_do_adj"
-      } else {
-        "do_mgl_adj"
-      }
-      
-      action_note_k <- if (!is.na(note_k) && nzchar(note_k)) {
-        note_k
-      } else {
-        paste0("Automatic DO QAQC: ", code_k, " (", adj_k, ").")
-      }
-      
-      log_rows_list[[length(log_rows_list) + 1L]] <- make_qaqc_log_row(
-        timestamps  = ts_vec_k,
-        station     = select_station,
-        metric      = metric,
-        field       = field_k,
-        action      = adj_k,  # REMOVED / REPLACED
-        code        = code_k,
-        action_note = action_note_k,
-        manual_note = "Automatic dissolved oxygen QA/QC; no manual note provided.",
-        fun_name    = fun_name,
-        user        = user,
-        run_time    = run_time
-      )
-    }
-  }
-  
-  # B) Flags only (no direct value change) – FLAG_ICE, FLAG_DRY
-  flag_codes <- c("FLAG_ICE", "FLAG_DRY")
-  flagged <- output_data %>%
-    dplyr::filter(.data$do_qaqc_code %in% flag_codes)
-  
-  if (nrow(flagged) > 0) {
-    grp_flag <- flagged %>%
-      dplyr::group_by(do_qaqc_code) %>%
-      dplyr::summarise(
-        ts_vec     = list(.data$timestamp),
-        note_first = dplyr::first(.data$do_qaqc_note),
-        .groups    = "drop"
-      )
-    
-    for (k in seq_len(nrow(grp_flag))) {
-      code_k   <- grp_flag$do_qaqc_code[k]
-      ts_vec_k <- grp_flag$ts_vec[[k]]
-      note_k   <- grp_flag$note_first[k]
-      
-      field_k <- if (code_k == "FLAG_ICE") {
-        "watertemp_C_do_adj"
-      } else {
-        "do_mgl_adj"
-      }
-      
-      action_note_k <- if (!is.na(note_k) && nzchar(note_k)) {
-        note_k
-      } else {
-        paste0("Automatic DO QAQC flag: ", code_k, ".")
-      }
-      
-      log_rows_list[[length(log_rows_list) + 1L]] <- make_qaqc_log_row(
-        timestamps  = ts_vec_k,
-        station     = select_station,
-        metric      = metric,
-        field       = field_k,
-        action      = "FLAG",
-        code        = code_k,
-        action_note = action_note_k,
-        manual_note = "Automatic dissolved oxygen QA/QC; no manual note provided.",
-        fun_name    = fun_name,
-        user        = user,
-        run_time    = run_time
-      )
-    }
-  }
-  
-  # Bind and write log if we actually have any rows
-  log_rows <- log_rows_list[!vapply(log_rows_list, is.null, logical(1))]
-  if (length(log_rows) > 0) {
-    log_rows_df <- dplyr::bind_rows(log_rows)
-    
-    log_path <- qaqc_log_path(log_root, select_station, metric)
-    
-    qaqc_log_append(
-      log_path = log_path,
-      station  = select_station,
-      metric   = metric,
-      log_rows = log_rows_df
+  rules <- list(
+    # DO logger error
+    list(
+      flag        = output_data$do_error %in% TRUE,
+      field       = "do_mgl_adj",
+      code        = "DO_ERROR",
+      action_note = "Logger error code (-888.88) in DO or DO temperature; DO and %sat removed."
+    ),
+    # negative DO
+    list(
+      flag        = output_data$do_neg_between %in% TRUE,
+      field       = "do_mgl_adj",
+      code        = "NEGATIVE_DO",
+      action_note = "DO between 0 and -1 mg/L corrected to 0 (and %sat to 0)."
+    ),
+    list(
+      flag        = output_data$do_neg_lt_minus1 %in% TRUE,
+      field       = "do_mgl_adj",
+      code        = "NEGATIVE_DO",
+      action_note = "DO less than -1 mg/L removed (DO and %sat set to NA)."
+    ),
+    # very high DO
+    list(
+      flag        = output_data$do_high %in% TRUE,
+      field       = "do_mgl_adj",
+      code        = "OUTLIER_DO",
+      action_note = "DO greater than 21 mg/L removed (DO and %sat set to NA)."
+    ),
+    # temperature-driven rules
+    list(
+      flag        = output_data$temp_neg_between %in% TRUE,
+      field       = "watertemp_C_do_adj",
+      code        = "NEGATIVE_TEMP",
+      action_note = "DO water temp between 0 and -1 °C corrected to 0 °C."
+    ),
+    list(
+      flag        = output_data$temp_neg_leq_minus1 %in% TRUE,
+      field       = "watertemp_C_do_adj",
+      code        = "LOGGER_ICE",
+      action_note = "DO water temp ≤ -1 °C removed (set to NA)."
+    ),
+    list(
+      flag        = output_data$temp_flag_ice %in% TRUE,
+      field       = "watertemp_C_do_adj",
+      code        = "FLAG_ICE",
+      action_note = "Possible ice conditions: DO water temp < 0.3 °C; flagged for review."
+    ),
+    # dry periods (12-point rule) – DO-specific
+    list(
+      flag        = output_data$flag_do_dry %in% TRUE,
+      field       = "do_mgl_adj",
+      code        = "FLAG_DO_DRY",
+      action_note = "Possible dry sensor: DO %sat ≥ 100 and air–water temps within 2 °C for ≥ 12 points."
     )
+  )
+  
+  logs_list <- lapply(rules, function(r) {
+    ts_sel <- output_data$timestamp[r$flag]
+    if (length(ts_sel) == 0) return(NULL)
     
-    message("QA/QC log updated: ", log_path)
+    make_qaqc_log_row(
+      timestamps  = ts_sel,
+      station     = select_station,
+      metric      = metric,
+      field       = r$field,
+      action      = action,
+      code        = r$code,
+      action_note = r$action_note,
+      manual_note = manual_note,
+      fun_name    = fun_name,
+      user        = user,
+      run_time    = run_time
+    )
+  })
+  
+  log_this <- logs_list[!vapply(logs_list, is.null, logical(1))]
+  log_this <- if (length(log_this) > 0) {
+    dplyr::bind_rows(log_this)
+  } else {
+    dplyr::tibble(
+      station        = select_station,
+      metric         = metric,
+      field          = "do_mgl_adj",
+      action         = action,
+      code           = NA_character_,
+      action_note    = "Automatic dissolved oxygen QA/QC ran; no flags applied.",
+      manual_note    = manual_note,
+      ts_start       = NA_character_,
+      ts_end         = NA_character_,
+      duration_hours = NA_real_,
+      fun_name       = fun_name,
+      run_at         = run_time,
+      user           = user
+    )
   }
+  
+  # ---- 7. Append to on-disk log ---------------------------------------------
+  log_path <- qaqc_log_path(log_root, select_station, metric)
+  
+  qaqc_log_append(
+    log_path = log_path,
+    station  = select_station,
+    metric   = metric,
+    log_rows = log_this
+  )
+  
+  message("QA/QC log updated: ", log_path)
   
   return(output_data)
 }

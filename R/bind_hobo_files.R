@@ -69,15 +69,34 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   
   # Error messages for file binding
-  if(length(unique(hobo_data_raw$data1_type))>1){
-    warning("Folder contains different types of HOBO loggers.  Check that all files in input folder are of the same logger type (refer to 'file_summary').")
+  if (length(unique(hobo_data_raw$data1_type)) > 1) {
+    warning(
+      "Folder contains different types of HOBO loggers. ",
+      "Check that all files in input folder are of the same logger type ",
+      "(refer to 'file_summary')."
+    )
   }
-  if(length(unique(hobo_data_raw$data1_unit))>1|length(unique(hobo_data_raw$data2_unit))>1){
-    warning("Some files are in different units (refer to 'file_summary').")
+  
+  # Safely check units for channel 1 and (if present) channel 2
+  units1_mixed <- length(unique(hobo_data_raw$data1_unit)) > 1
+  
+  units2_mixed <- "dat2_unit" %in% names(hobo_data_raw) &&
+    length(unique(hobo_data_raw$dat2_unit)) > 1
+  
+  is_conductivity_folder <- any(grepl("conduct", tolower(hobo_data_raw$data1_type)))
+  
+  if (units1_mixed || units2_mixed) {
+    if (is_conductivity_folder) {
+      warning(
+        "Conductivity files have different HOBO channel layouts (e.g., Low Range vs Full Range). ",
+        "All channels are in µS/cm. bind_hobo_files() will merge them into a single ",
+        "`conduct_uScm` column and record the source in `conduct_source`."
+      )
+    } else {
+      warning("Some files are in different units (refer to 'file_summary').")
+    }
   }
-  if(length(unique(hobo_data_raw$timezone))>1){
-    warning("Some files are in different timezones (refer to 'file_summary').")
-  }
+  
   
   # format timestamp
   # NOTE: all times are in PDT (setting timezone to UTC tricks R to ignore daylight savings time)
@@ -261,109 +280,65 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   # CONDUCTIVITY LOGGER U24 ---------------------------------------------
   # Only run this block if the folder metric is conductivity
+  
+  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
+  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
   if (measurement_type == "conductivity") {
     
-    # --- 1. Identify conductivity columns (Low / Full range) -----------------
-    low_cols  <- grep("^Low Range",  names(sites_compiled), value = TRUE)
-    full_cols <- grep("^Full Range", names(sites_compiled), value = TRUE)
+    nm <- names(sites_compiled)
     
-    has_low  <- length(low_cols)  > 0
-    has_full <- length(full_cols) > 0
+    # Much looser patterns: just look for "Low Range" / "Full Range" and "S/cm"
+    low_col  <- nm[grepl("Low Range",  nm, ignore.case = TRUE) &
+                     grepl("S/cm",       nm, ignore.case = TRUE)]
+    full_col <- nm[grepl("Full Range", nm, ignore.case = TRUE) &
+                     grepl("S/cm",       nm, ignore.case = TRUE)]
     
-    if (!has_low && !has_full) {
-      warning(
-        "bind_hobo_files(): measurement_type = 'conductivity' but no 'Low Range' ",
-        "or 'Full Range' conductivity columns were found. Skipping conductivity handling."
+    # Temp column: "Temp °C" or "Temp, °C", any variant with C
+    temp_col <- nm[grepl("^Temp", nm, ignore.case = TRUE) &
+                     grepl("C",     nm, ignore.case = TRUE)]
+    
+    if (length(low_col)  > 1L) stop("Multiple 'Low Range' columns found.")
+    if (length(full_col) > 1L) stop("Multiple 'Full Range' columns found.")
+    if (length(temp_col) > 1L) stop("Multiple temperature (°C) columns found.")
+    
+    low_col  <- if (length(low_col))  low_col[[1]]  else NA_character_
+    full_col <- if (length(full_col)) full_col[[1]] else NA_character_
+    temp_col <- if (length(temp_col)) temp_col[[1]] else NA_character_
+    
+    # Extract numeric vectors safely (avoid .data[[NA]])
+    n <- nrow(sites_compiled)
+    
+    low_vals  <- if (!is.na(low_col))  suppressWarnings(as.numeric(sites_compiled[[low_col]]))  else rep(NA_real_, n)
+    full_vals <- if (!is.na(full_col)) suppressWarnings(as.numeric(sites_compiled[[full_col]])) else rep(NA_real_, n)
+    temp_vals <- if (!is.na(temp_col)) suppressWarnings(as.numeric(sites_compiled[[temp_col]])) else rep(NA_real_, n)
+    
+    # HOBO U24 low-range ~0–1000 µS/cm
+    low_max <- 1000
+    
+    sites_compiled <- sites_compiled %>%
+      dplyr::mutate(
+        conduct_uScm = dplyr::case_when(
+          !is.na(low_vals)  & low_vals <= low_max ~ low_vals,   # prefer low range when valid & in range
+          !is.na(full_vals)                      ~ full_vals,   # else full range
+          !is.na(low_vals)                       ~ low_vals,    # fallback to low
+          TRUE                                   ~ NA_real_
+        ),
+        conduct_source = dplyr::case_when(
+          !is.na(low_vals)  & low_vals <= low_max ~ "low",
+          !is.na(full_vals)                      ~ "full",
+          !is.na(low_vals)                       ~ "low",
+          TRUE                                   ~ NA_character_
+        ),
+        watertemp_C = temp_vals
       )
-    } else {
-      logger_header <- "COND"
-      
-      # Use the first matching low/full column if multiple (shouldn't normally happen)
-      low_col  <- if (has_low)  low_cols[1]  else NA_character_
-      full_col <- if (has_full) full_cols[1] else NA_character_
-      
-      # --- 2. Build unified conduct_uScm + conduct_range_used -----------------
-      if (has_low && has_full) {
-        sites_compiled <- sites_compiled %>%
-          dplyr::mutate(
-            conduct_uScm = dplyr::case_when(
-              !is.na(.data[[low_col]])  ~ as.numeric(.data[[low_col]]),
-              !is.na(.data[[full_col]]) ~ as.numeric(.data[[full_col]]),
-              TRUE                       ~ NA_real_
-            ),
-            conduct_range_used = dplyr::case_when(
-              !is.na(.data[[low_col]])  ~ "Low Range",
-              !is.na(.data[[full_col]]) ~ "Full Range",
-              TRUE                       ~ NA_character_
-            )
-          )
-      } else if (has_low) {
-        sites_compiled <- sites_compiled %>%
-          dplyr::mutate(
-            conduct_uScm = as.numeric(.data[[low_col]]),
-            conduct_range_used = dplyr::if_else(
-              !is.na(.data[[low_col]]),
-              "Low Range",
-              NA_character_
-            )
-          )
-      } else if (has_full) {
-        sites_compiled <- sites_compiled %>%
-          dplyr::mutate(
-            conduct_uScm = as.numeric(.data[[full_col]]),
-            conduct_range_used = dplyr::if_else(
-              !is.na(.data[[full_col]]),
-              "Full Range",
-              NA_character_
-            )
-          )
-      }
-      
-      if ("conduct_range_used" %in% names(sites_compiled)) {
-        sites_compiled$conduct_range_used <- factor(
-          sites_compiled$conduct_range_used,
-          levels = c("Low Range", "Full Range")
-        )
-      }
-      
-      # --- 3. Temperature handling (robust to weird column names) ------------
-      # If watertemp_C already exists, don't overwrite it.
-      if (!"watertemp_C" %in% names(sites_compiled)) {
-        
-        # Look for any column that looks like a temperature column
-        temp_candidates <- names(sites_compiled)[
-          grepl("Temp", names(sites_compiled), ignore.case = TRUE) &
-            !grepl("Coupler", names(sites_compiled), ignore.case = TRUE) &
-            !grepl("Detach", names(sites_compiled), ignore.case = TRUE)
-        ]
-        
-        if (length(temp_candidates) == 0) {
-          warning(
-            "bind_hobo_files(): No temperature column found for conductivity logger(s). ",
-            "`watertemp_C` set to NA."
-          )
-          sites_compiled$watertemp_C <- NA_real_
-          
-        } else {
-          temp_col <- temp_candidates[1]
-          
-          # Try to infer °C vs °F.
-          # If we have a data*_unit column in °F, convert; otherwise assume °C.
-          units_cols <- intersect(names(sites_compiled), c("data1_unit", "data2_unit"))
-          units_val  <- if (length(units_cols)) unique(na.omit(unlist(sites_compiled[units_cols]))) else character(0)
-          
-          is_F <- any(grepl("°F|degF", units_val, ignore.case = TRUE))
-          
-          temp_vec <- suppressWarnings(as.numeric(sites_compiled[[temp_col]]))
-          
-          if (is_F) {
-            temp_vec <- convert_F_to_C(temp_vec)
-          }
-          
-          sites_compiled$watertemp_C <- temp_vec
-        }
-      }
-    }
+    
+    logger_header <- "COND"
+    
+    # Standardise metadata so "data1" = cond, "data2" = temp for ALL cond files
+    sites_compiled$data1_type <- "conductivity"
+    sites_compiled$data1_unit <- "µS/cm"
+    sites_compiled$data2_type <- "Temp"
+    sites_compiled$dat2_unit  <- "°C"
   }
   
   
@@ -371,6 +346,12 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   if (is.na(logger_header)) {
     stop("Could not determine logger_header from column names and measurement_type.")
   }
+  
+  # Remove HOBO event columns we don't need
+  sites_compiled <- sites_compiled %>%
+    dplyr::select(
+      -dplyr::matches("Coupler Detached|Coupler Attached|Stopped|End Of File")
+    )
   
   #### EXPORT CSV BY LOGGER TYPE LOCATION AND YEAR
   # some stations may have multiple logger files, one from a download in spring and another for a download in fall

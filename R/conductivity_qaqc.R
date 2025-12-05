@@ -1,31 +1,3 @@
-#' Conductivity QA/QC for a Single Station
-#'
-#' Applies automated quality-control checks to conductivity logger data.
-#' Flags and adjusts spikes, dry periods, temperature issues (including ice),
-#' and negative/near-zero water temperatures. Produces adjusted conductivity
-#' and temperature columns and writes detailed log entries via the QA/QC
-#' logging system.
-#'
-#'
-#' Current QAQC rules:
-#'   * Water temperature < 0.1°C is flagged as ICE.
-#'   * Slightly negative temperatures (-1 to 0°C) are corrected to 0°C.
-#'
-#' @param input_data Data frame containing conductivity logger records.
-#' @param select_station Character. Station code to filter.
-#' @param log_root Directory where QA/QC logs should be written.
-#' @param user Username recorded in QA/QC logs (default: system user).
-#' @param temp_low_limit_C Lower allowable water temperature (°C).
-#' @param temp_high_limit_C Upper allowable water temperature (°C).
-#' @param disturbance_threshold_uScm Numeric. Absolute jump considered a spike.
-#' @param dry_threshold_uScm Conductivity below this suggests dry conditions.
-#' @param air_water_diff_threshold_C Used when `airtemp_C` exists to determine
-#'   whether low conductivity is supported by similar air-water temperature.
-#'
-#' @return A data frame with adjusted values, QA/QC flags, and QC notes.
-#' @export
-#'
-#' @examples
 conductivity_qaqc <- function(
     input_data,
     select_station,
@@ -37,18 +9,14 @@ conductivity_qaqc <- function(
     dry_threshold_uScm         = 10,    # very low cond = probable dry
     air_water_diff_threshold_C = 2      # |air - water| <= 2°C to support dry inference
 ) {
-  
   # ---------------------------------------------------------------------------
-  # NOTE: This function automatically:
-  #   1) Flags water temperature < 0.1 °C as ICE.
-  #   2) Corrects slightly negative water temperatures between -1 and 0 °C to 0.
-  # These thresholds are intentionally hard-coded because small negative temps
-  # are almost always sensor noise, not real liquid-water temperatures.
-     ice_threshold_C       <- 0.1
-   near_zero_temp_window <- c(-1, 0)
+  # Hard-coded small-temp rules:
+  #   * Water temperature < 0.1 °C is considered possible ICE.
+  #   * Slightly negative water temperatures between -1 and 0 °C are set to 0 °C.
   # ---------------------------------------------------------------------------
+  ice_threshold_C        <- 0.1
+  near_zero_temp_window  <- c(-1, 0)
   
-
   # ---- 1. Filter & basic checks ---------------------------------------------
   df <- input_data %>%
     dplyr::filter(site_station_code == select_station) %>%
@@ -72,7 +40,7 @@ conductivity_qaqc <- function(
     df$timestamp <- lubridate::ymd_hms(df$timestamp, tz = "UTC")
   }
   
-  # ---- 2. Create adjusted & QAQC columns if missing -------------------------
+  # ---- 2. Create adjusted columns if missing --------------------------------
   if (!"conduct_uScm_adj" %in% names(df)) {
     df$conduct_uScm_adj <- df$conduct_uScm
   }
@@ -80,146 +48,160 @@ conductivity_qaqc <- function(
     df$watertemp_C_adj <- df$watertemp_C
   }
   
-  if (!"cond_qaqc_code" %in% names(df)) {
-    df$cond_qaqc_code <- NA_character_
-  }
-  if (!"cond_qaqc_note" %in% names(df)) {
-    df$cond_qaqc_note <- NA_character_
-  }
+  # ---- 3. Detection helpers (use adj as working values) ---------------------
+  # Temperature conditions
+  temp_low   <- df$watertemp_C_adj < temp_low_limit_C
+  temp_high  <- df$watertemp_C_adj > temp_high_limit_C
+  temp_ice   <- df$watertemp_C_adj < ice_threshold_C
   
-  flag_cols <- c(
-    "edit_cond_spike",
-    "edit_cond_dry",
-    "edit_temp_range",
-    "edit_ice"
-  )
-  for (fc in flag_cols) {
-    if (!fc %in% names(df)) df[[fc]] <- FALSE
-  }
+  near_zero  <- df$watertemp_C_adj >= near_zero_temp_window[1] &
+    df$watertemp_C_adj <  near_zero_temp_window[2]
   
-  # ---- 3. Detection rules ---------------------------------------------------
-  temp_low   <- df$watertemp_C < temp_low_limit_C
-  temp_high  <- df$watertemp_C > temp_high_limit_C
-  temp_ice   <- df$watertemp_C < ice_threshold_C
-  
-  near_zero  <- df$watertemp_C >= near_zero_temp_window[1] &
-    df$watertemp_C <  near_zero_temp_window[2]
-  
-  diff_cond  <- c(NA_real_, diff(df$conduct_uScm))
+  # Conductivity spike (use adj)
+  diff_cond  <- c(NA_real_, diff(df$conduct_uScm_adj))
   spike      <- abs(diff_cond) > disturbance_threshold_uScm
   
-  very_low_cond <- df$conduct_uScm < dry_threshold_uScm
+  # Very low conductivity
+  very_low_cond <- df$conduct_uScm_adj < dry_threshold_uScm
   
+  # Air–water support for dry inference (optional)
   if ("airtemp_C" %in% names(df)) {
-    air_water_close <- abs(df$airtemp_C - df$watertemp_C) <= air_water_diff_threshold_C
+    air_water_close <- abs(df$airtemp_C - df$watertemp_C_adj) <= air_water_diff_threshold_C
   } else {
     air_water_close <- rep(FALSE, nrow(df))
   }
   
   dry_air_based <- very_low_cond & air_water_close
   
-  # ---- 4. Apply adjustments -------------------------------------------------
+  # Combined dry flag (COND-specific)
+  flag_co_dry <- very_low_cond | dry_air_based
+  
+  # ---- 4. Apply *temperature* adjustments; cond remains as-is ---------------
   df <- df %>%
     dplyr::mutate(
       watertemp_C_adj = dplyr::case_when(
-        near_zero ~ 0,                            # small negatives -> 0
-        temp_low  ~ NA_real_,                     # out of range low
-        temp_high ~ NA_real_,                     # out of range high
+        near_zero ~ 0,            # small negatives -> 0
+        temp_low  ~ NA_real_,     # out-of-range low
+        temp_high ~ NA_real_,     # out-of-range high
         TRUE      ~ watertemp_C_adj
       ),
       
-      edit_temp_range = temp_low | temp_high,
-      edit_ice        = temp_ice,
-      edit_cond_spike = spike,
-      edit_cond_dry   = very_low_cond | dry_air_based
+      # Keep key flags for plotting / diagnostics
+      flag_co_spike         = spike,
+      flag_co_temp_ice      = temp_ice,
+      flag_co_temp_low      = temp_low,
+      flag_co_temp_high     = temp_high,
+      flag_co_temp_neg_near = near_zero,
+      flag_co_dry           = flag_co_dry
+    ) %>%
+    # Drop purely helper columns we don't need to expose
+    dplyr::select(
+      -dplyr::all_of(c("air_water_close")) %>% 
+        intersect(names(.)),  # safe if column didn't exist
+      -dplyr::all_of(c("diff_cond"))      %>% 
+        intersect(names(.))
     )
   
-  # one QAQC code per row (priority order)
-  df$cond_qaqc_code <- dplyr::case_when(
-    dry_air_based                  ~ "DRY_AIRTEMP",
-    very_low_cond & !dry_air_based ~ "DRY_COND_ONLY",
-    spike                          ~ "SPIKE",
-    near_zero                      ~ "NEGATIVE_WT",
-    temp_ice                       ~ "ICE",
-    temp_low                       ~ "TEMP_LOW",
-    temp_high                      ~ "TEMP_HIGH",
-    TRUE                           ~ df$cond_qaqc_code
-  )
+  # ---- 5. Build QA/QC log rows (COND-style rules list) ----------------------
+  metric      <- "COND"
+  fun_name    <- "conductivity_qaqc"
+  action      <- "AUTO_QAQC"
+  manual_note <- "Automatic conductivity QA/QC; no manual note provided."
+  run_time    <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
   
-  df$cond_qaqc_note <- dplyr::case_when(
-    df$cond_qaqc_code == "DRY_AIRTEMP"   ~ paste0(
-      "Likely dry: cond < ", dry_threshold_uScm,
-      " uS/cm and |air - water| <= ", air_water_diff_threshold_C, " °C"
+  rules <- list(
+    # Spikes (no automatic removal, just flag & log)
+    list(
+      flag        = df$flag_co_spike %in% TRUE,
+      field       = "conduct_uScm_adj",
+      code        = "FLAG_CO_SPIKE",
+      action_note = paste0("Spike > ", disturbance_threshold_uScm, " µS/cm between samples; flagged for review.")
     ),
-    df$cond_qaqc_code == "DRY_COND_ONLY" ~ paste0(
-      "Very low conductivity (< ", dry_threshold_uScm, " uS/cm)"
+    # Ice-like temperatures
+    list(
+      flag        = df$flag_co_temp_ice %in% TRUE,
+      field       = "watertemp_C_adj",
+      code        = "FLAG_ICE",
+      action_note = "Water temperature < 0.1 °C (likely ice); flagged for review."
     ),
-    df$cond_qaqc_code == "SPIKE"         ~ paste0(
-      "Spike > ", disturbance_threshold_uScm, " uS/cm"
+    # Slight negatives corrected to 0
+    list(
+      flag        = df$flag_co_temp_neg_near %in% TRUE,
+      field       = "watertemp_C_adj",
+      code        = "NEGATIVE_WT",
+      action_note = "Water temperature between -1 and 0 °C corrected to 0 °C."
     ),
-    df$cond_qaqc_code == "NEGATIVE_WT"   ~ "Negative water temperature corrected to 0 °C",
-    df$cond_qaqc_code == "ICE"           ~ "Water temperature < 0.1 °C (likely ice)",
-    df$cond_qaqc_code == "TEMP_LOW"      ~ paste0(
-      "Water temperature < ", temp_low_limit_C, " °C"
-    ),
-    df$cond_qaqc_code == "TEMP_HIGH"     ~ paste0(
-      "Water temperature > ", temp_high_limit_C, " °C"
-    ),
-    TRUE                                 ~ df$cond_qaqc_note
-  )
-  
-  # ---- 5. Logging -----------------------------------------------------------
-  metric <- "COND"
-  field  <- "conduct_uScm_adj"
-  
-  events <- list(
-    list(name = "SPIKE",
-         idx  = which(spike),
-         note = paste0("Spike > ", disturbance_threshold_uScm, " uS/cm")),
-    list(name = "DRY_AIRTEMP",
-         idx  = which(dry_air_based),
-         note = "Likely dry based on conductivity + air/water temperature"),
-    list(name = "DRY_COND_ONLY",
-         idx  = which(very_low_cond & !dry_air_based),
-         note = "Conductivity below dry threshold"),
-    list(name = "ICE",
-         idx  = which(temp_ice),
-         note = "Water temperature < 0.1 °C (likely ice)"),
-    list(name = "NEGATIVE_WT",
-         idx  = which(near_zero),
-         note = "Negative water temperature corrected to 0 °C"),
-    list(name = "TEMP_RANGE",
-         idx  = which(temp_low | temp_high),
-         note = "Water temperature outside acceptable range")
-  )
-  
-  for (ev in events) {
-    if (length(ev$idx) > 0) {
-      ts_vals <- df$timestamp[ev$idx]
-      
-      log_row <- make_qaqc_log_row(
-        timestamps  = ts_vals,
-        station     = select_station,
-        metric      = metric,
-        field       = field,
-        action      = ev$name,
-        code        = ev$name,
-        action_note = ev$note,
-        manual_note = "AUTOMATIC QC",
-        fun_name    = "conductivity_qaqc",
-        user        = user
+    # Out-of-range temps (low or high)
+    list(
+      flag        = (df$flag_co_temp_low | df$flag_co_temp_high) %in% TRUE,
+      field       = "watertemp_C_adj",
+      code        = "TEMP_RANGE",
+      action_note = paste0(
+        "Water temperature outside acceptable range (",
+        temp_low_limit_C, " to ", temp_high_limit_C, " °C); set to NA."
       )
-      
-      log_path <- qaqc_log_path(log_root, select_station, metric)
-      
-      qaqc_log_append(
-        log_path = log_path,
-        station  = select_station,
-        metric   = metric,
-        log_rows = log_row
+    ),
+    # Dry conditions – COND-specific
+    list(
+      flag        = df$flag_co_dry %in% TRUE,
+      field       = "conduct_uScm_adj",
+      code        = "FLAG_CO_DRY",
+      action_note = paste0(
+        "Possible dry sensor: conductivity < ", dry_threshold_uScm,
+        " µS/cm (and, where available, air–water temperatures behave like air exposure)."
       )
-    }
+    )
+  )
+  
+  logs_list <- lapply(rules, function(r) {
+    ts_sel <- df$timestamp[r$flag]
+    if (length(ts_sel) == 0) return(NULL)
+    
+    make_qaqc_log_row(
+      timestamps  = ts_sel,
+      station     = select_station,
+      metric      = metric,
+      field       = r$field,
+      action      = action,
+      code        = r$code,
+      action_note = r$action_note,
+      manual_note = manual_note,
+      fun_name    = fun_name,
+      user        = user,
+      run_time    = run_time
+    )
+  })
+  
+  log_this <- logs_list[!vapply(logs_list, is.null, logical(1))]
+  log_this <- if (length(log_this) > 0) {
+    dplyr::bind_rows(log_this)
+  } else {
+    dplyr::tibble(
+      station        = select_station,
+      metric         = metric,
+      field          = "conduct_uScm_adj",
+      action         = action,
+      code           = NA_character_,
+      action_note    = "Automatic conductivity QA/QC ran; no flags applied.",
+      manual_note    = manual_note,
+      ts_start       = NA_character_,
+      ts_end         = NA_character_,
+      duration_hours = NA_real_,
+      fun_name       = fun_name,
+      run_at         = run_time,
+      user           = user
+    )
   }
+  
+  # ---- 6. Append to on-disk log ---------------------------------------------
+  log_path <- qaqc_log_path(log_root, select_station, metric)
+  
+  qaqc_log_append(
+    log_path = log_path,
+    station  = select_station,
+    metric   = metric,
+    log_rows = log_this
+  )
   
   message("Conductivity QAQC completed for: ", select_station)
   df

@@ -71,8 +71,8 @@ waterlevel_qaqc <- function(input_data,
       # combine temperature-based dry signals
       flag_dry_temp = wt_high_dry | wt_air_close | wt_air_warmer,
       
-      # final dry flag (WL + WT signals)
-      flag_dry = flag_dry_wl | flag_dry_temp,
+      # final dry flag (WL + WT signals) – make it WL-specific
+      flag_wl_dry = flag_dry_wl | flag_dry_temp,
       
       # adjust temperature based on negatives
       watertemp_C_adj = dplyr::case_when(
@@ -117,9 +117,9 @@ waterlevel_qaqc <- function(input_data,
       action_note = "Large step change in water level (> 0.1 m); flagged as potential logger disturbance."
     ),
     list(
-      flag        = output_data$flag_dry %in% TRUE,
+      flag        = output_data$flag_wl_dry %in% TRUE,
       field       = "waterlevel_m_adj",
-      code        = "FLAG_DRY",
+      code        = "FLAG_WL_DRY",
       action_note = "Possible dry sensor (warm water, low pressure, or air–water temperature behaviour); flagged."
     )
   )
