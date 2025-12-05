@@ -1,3 +1,54 @@
+#' Run barometric QA/QC for all baro stations in metadata
+#'
+#' Reads all barometric logger files for stations listed in the metadata
+#' (where `metric == "barometric"`), applies `barometric_qaqc()` to each
+#' station, writes yearly QA/QC CSVs (v0.1), and returns a combined data
+#' frame of all QA/QC'd barometric data.
+#'
+#' Files are expected to follow the naming pattern
+#' `"<site_station_code>_BARO_YYYYMMDD_YYYYMMDD_v*.csv"` and live somewhere
+#' under `baro_data_path`.
+#'
+#' @param baro_data_path Root directory containing processed barometric CSV
+#'   files. All subdirectories are searched recursively for files matching
+#'   `"<station>_BARO_*.csv"`, where `<station>` comes from the metadata.
+#'   For example: `"data/testing/processed"`.
+#' @param metadata_path Path to the metadata CSV used by [QAQC_metadata()],
+#'   e.g. `"data/testing/raw/testing_metadata.csv"`. Must include
+#'   `site_station_code`, `metric`, and barometric station definitions
+#'   (`metric == "barometric"`).
+#' @param path_to_output_folder Root directory where yearly QA/QC barometric
+#'   files will be written. Year- and `processed`-subfolders are created as
+#'   needed, e.g. `"data/testing/processed"`.
+#' @param log_root Root folder where QA/QC logs are written by
+#'   [barometric_qaqc()] and related functions, typically the same as
+#'   `path_to_output_folder`, e.g. `"data/testing/processed"`.
+#' @param temp_low_limit Lower bound (°C) for plausible barometric logger
+#'   temperatures. Values outside this range may be flagged or removed.
+#' @param temp_high_limit Upper bound (°C) for plausible barometric logger
+#'   temperatures.
+#' @param pressure_low_kpa Lower bound (kPa) for plausible barometric
+#'   pressure.
+#' @param pressure_high_kpa Upper bound (kPa) for plausible barometric
+#'   pressure.
+#' @param spike_threshold_kpa Threshold (kPa) for flagging sudden pressure
+#'   spikes between consecutive timesteps.
+#' @param flatline_n Integer; number of consecutive identical values used to
+#'   flag potential flatlining in the pressure series.
+#' @param user Character username written into the QA/QC log. Defaults to
+#'   `Sys.info()[["user"]]`.
+#'
+#'
+#' @return A single long-format data frame created by binding the QA/QC'd
+#'    barometric data for all stations. If no stations are processed
+#'   successfully, an empty tibble is returned and a warning is issued.
+#'
+#' @seealso [barometric_qaqc()], [QAQC_metadata()], [add_nearest_baro()]
+#'
+#' @import dplyr
+#' @importFrom lubridate ymd_hms year as_date
+#' @importFrom tibble tibble
+#' @export
 barometric_qaqc_all <- function(
     baro_data_path,
     metadata_path,

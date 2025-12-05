@@ -1,31 +1,62 @@
 #' Adjust water level zero/reference
 #'
 #' Shift adjusted water levels by a constant offset to change the zero/reference
-#' level. If `change_value` is NULL, the offset is computed from the mean
+#' level. If `change_value` is `NULL`, the offset is computed from the mean
 #' water level in a specified time window (assumed to represent the new zero).
 #'
-#' @param input_data Data frame containing water level data for one or more stations.
-#' @param select_station Station code to adjust (site_station_code).
+#' @param input_data Data frame containing water level data for one or more
+#'   stations. Must include `timestamp`, `site_station_code`, `waterlevel_m`,
+#'   and `waterlevel_m_adj`.
+#' @param select_station Character; station code to adjust
+#'   (value of `site_station_code`).
 #' @param change_value Numeric offset (m) to add to `waterlevel_m_adj`.
-#'   Positive values shift levels up, negative values shift down. If NULL,
-#'   the offset is computed from the average water level between
+#'   Positive values shift levels up, negative values shift them down. If
+#'   `NULL`, the offset is computed from the average water level between
 #'   `timestamp_start` and `timestamp_end`.
 #' @param timestamp_start Start of window used to compute automatic zero
-#'   (character "YYYY-MM-DD HH:MM:SS", UTC), only used if `change_value` is NULL.
+#'   (character `"YYYY-MM-DD HH:MM:SS"`, typically UTC), only used if
+#'   `change_value` is `NULL`.
 #' @param timestamp_end End of window used to compute automatic zero
-#'   (character "YYYY-MM-DD HH:MM:SS", UTC), only used if `change_value` is NULL.
+#'   (character `"YYYY-MM-DD HH:MM:SS"`, typically UTC), only used if
+#'   `change_value` is `NULL`.
 #' @param manual_note Character, required. Description of why the zero shift
-#'   was applied (used in the QA/QC log).
-#' @param log_root Root folder where QA/QC logs live (logs will go in
-#'   `<log_root>/logs`).
-#' @param user Username written to the QA/QC log
+#'   was applied (stored in the QA/QC log).
+#' @param log_root Root folder used to build the QA/QC log path (passed to
+#'   `qaqc_log_path()`).
+#' @param user Username written to the QA/QC log. Defaults to
+#'   `Sys.info()[["user"]]`.
 #'
-#' @return Modified data frame with updated `waterlevel_m_adj` and `edit_zero`
-#'   flag, and a QA/QC log entry written to disk.
+#' @return Modified data frame for `select_station` with updated
+#'   `waterlevel_m_adj` and `edit_zero` flag, and a QA/QC log entry written
+#'   to disk.
+#'
+#' @details
+#' If `change_value` is supplied, that constant is added to the entire
+#' `waterlevel_m_adj` series.
+#'
+#' If `change_value` is `NULL`, the function:
+#' \itemize{
+#'   \item Filters rows between `timestamp_start` and `timestamp_end`.
+#'   \item Computes the mean of `waterlevel_m_adj` in that window, if present;
+#'         otherwise falls back to `waterlevel_m`.
+#'   \item Uses the negative of this mean as the offset, so that the mean level
+#'         in that window becomes approximately 0 m.
+#'   \item Applies this offset to all `waterlevel_m_adj` values.
+#' }
+#' In both cases, `edit_zero` is set to `TRUE` for all rows for which the
+#' adjusted series was shifted.
+#'
+#' @seealso [adjust_WL_offset()], [adjust_waterlevel_spike()],
+#'   [adjust_logger_NA()], [make_qaqc_log_row()], [qaqc_log_path()],
+#'   [qaqc_log_append()]
+#'
+#' @import dplyr
+#' @importFrom lubridate ymd_hms
+#'
 #' @export
 adjust_WL_zero <- function(input_data,
                            select_station,
-                           change_value   = NULL,
+                           change_value    = NULL,
                            timestamp_start = NULL,
                            timestamp_end   = NULL,
                            manual_note,
@@ -70,9 +101,8 @@ adjust_WL_zero <- function(input_data,
     if (!is.numeric(change_value) || length(change_value) != 1L || is.na(change_value)) {
       stop("adjust_WL_zero(): 'change_value' must be a single numeric value (m).")
     }
-    offset_m <- change_value
-    offset_source <- "user-specified"
-    window_text <- NA_character_
+    offset_m     <- change_value
+    window_text  <- NA_character_
     
   } else {
     # Case 2: change_value == NULL → compute from window
@@ -106,17 +136,22 @@ adjust_WL_zero <- function(input_data,
       )
     }
     
-    mean_wl <- mean(window_data$waterlevel_m, na.rm = TRUE)
+    # Prefer adjusted series if present, fall back to raw waterlevel_m
+    mean_wl <- if ("waterlevel_m_adj" %in% names(window_data)) {
+      mean(window_data$waterlevel_m_adj, na.rm = TRUE)
+    } else {
+      mean(window_data$waterlevel_m, na.rm = TRUE)
+    }
+    
     if (is.na(mean_wl)) {
       stop(
-        "adjust_WL_zero(): All waterlevel_m values in the specified window are NA; ",
+        "adjust_WL_zero(): All water level values in the specified window are NA; ",
         "cannot compute automatic zero shift."
       )
     }
     
     # Shift so that mean in the window becomes ~0
-    offset_m <- -mean_wl
-    offset_source <- "auto-window"
+    offset_m    <- -mean_wl
     window_text <- paste0(timestamp_start, " to ", timestamp_end)
   }
   
@@ -139,7 +174,7 @@ adjust_WL_zero <- function(input_data,
   
   auto_note <- if (!is.na(window_text)) {
     paste0(
-      "Automatic zero shift computed from mean waterlevel_m between ",
+      "Automatic zero shift computed from mean adjusted water level between ",
       window_text, " (offset = ", round(offset_m, 3), " m)."
     )
   } else {

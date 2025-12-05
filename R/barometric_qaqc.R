@@ -1,3 +1,53 @@
+#' QA/QC a single barometric pressure time series
+#'
+#' Applies automatic QA/QC rules to a barometric logger time series for one
+#' station: removes out-of-range pressures and temperatures, flags spikes
+#' and flatlines, and writes QA/QC log entries. Returns the input data with
+#' adjusted columns (`airpress_kPa_adj`, `airtemp_C_adj`) and boolean edit
+#' flags.
+#'
+#' @param input_data Data frame of barometric logger data containing at least
+#'   `timestamp`, `site_station_code`, `airpress_kPa` and `airtemp_C`, possibly
+#'   for multiple stations.
+#' @param select_station Character, station code to process
+#'   (matches `site_station_code`).
+#' @param log_root Root folder where QA/QC logs are written by
+#'   [qaqc_log_append()], typically the same root used elsewhere in the
+#'   workflow (e.g. `"data/testing/processed"`).
+#' @param user Character username written into the QA/QC log. Defaults to
+#'   `Sys.info()[["user"]]`.
+#' @param temp_low_limit Lower bound (°C) for plausible barometric temperatures.
+#'   Values outside `[temp_low_limit, temp_high_limit]` are set to `NA` in
+#'   `airtemp_C_adj` and flagged.
+#' @param temp_high_limit Upper bound (°C) for plausible barometric temperatures.
+#' @param pressure_low_kpa Lower bound (kPa) for plausible barometric pressure.
+#'   Values below this are set to `NA` in `airpress_kPa_adj` and flagged.
+#' @param pressure_high_kpa Upper bound (kPa) for plausible barometric pressure.
+#'   Values above this are set to `NA` in `airpress_kPa_adj` and flagged.
+#' @param spike_threshold_kpa Threshold (kPa) for flagging sudden pressure
+#'   spikes between consecutive timesteps (absolute difference in kPa).
+#' @param flatline_n Integer; number of consecutive identical values required
+#'   to flag a potential flatline in the pressure series.
+#'
+#' @details
+#' If `airpress_kPa_adj` or `airtemp_C_adj` do not exist, they are created as
+#' copies of the raw `airpress_kPa` / `airtemp_C` columns and then modified
+#' by the QA/QC rules. Edit flags (`edit_press_high`, `edit_press_low`,
+#' `edit_temp_range`, `edit_spike`, `edit_flatline`) are created if missing
+#' and set to `TRUE` where each rule applies.
+#'
+#' For each rule that triggers, a corresponding QA/QC log entry is appended via
+#' [make_qaqc_log_row()] and [qaqc_log_append()], using metric `"BARO"` and
+#' field `"airpress_kPa_adj"`.
+#'
+#' @return A data frame containing only rows for `select_station`, sorted by
+#'   `timestamp`, with updated `*_adj` columns and edit flags. The input is not
+#'   modified in-place.
+#'
+#' @seealso [barometric_qaqc_all()], [add_nearest_baro()]
+#'
+#' @import dplyr
+#' @export
 barometric_qaqc <- function(input_data,
                             select_station,
                             log_root,

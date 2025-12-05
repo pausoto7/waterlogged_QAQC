@@ -1,6 +1,70 @@
-# adjust water level shift (previously known as adjust waterlevel cable break function)
-
-
+#' Apply a constant offset to water level after a break
+#'
+#' Applies a constant offset to the adjusted water level series
+#' (\code{waterlevel_m_adj}) after a specified time, typically to correct
+#' for a cable break, logger shift, or other step change. The offset is
+#' computed from the difference between raw water levels at two reference
+#' timestamps and applied to all timestamps at or after \code{timestamp_end}.
+#' A QA/QC log entry is written for all affected rows.
+#'
+#' @param input_data Data frame containing water-level data for one or more
+#'   stations, including \code{timestamp}, \code{site_station_code},
+#'   \code{waterlevel_m}, and \code{waterlevel_m_adj}.
+#' @param select_station Character; station code to adjust (value of
+#'   \code{site_station_code}).
+#' @param timestamp_start Character date-time for the pre-offset reference
+#'   point (in \code{"YYYY-MM-DD HH:MM:SS"} format), parsed with
+#'   \code{lubridate::ymd_hms()}.
+#' @param timestamp_end Character date-time for the post-offset reference
+#'   point and the time from which the offset will be applied onward
+#'   (same format as \code{timestamp_start}).
+#' @param manual_note Character; required free-text explanation describing why
+#'   this adjustment is being made. Stored in the QA/QC log.
+#' @param log_root Root directory where QA/QC logs are stored (for example,
+#'   \code{"data/testing/processed"}). The actual log path is derived from
+#'   this root, station, and metric.
+#' @param user Character; user name recorded in the log entry. Defaults to
+#'   \code{Sys.info()[["user"]]}.
+#'
+#' @return A data frame for \code{select_station} with updated
+#'   \code{waterlevel_m_adj} values and \code{edit_offset} flag. The input
+#'   columns are preserved; only adjusted values and flags are changed.
+#'
+#' @details
+#' The function:
+#' \itemize{
+#'   \item Filters \code{input_data} to \code{select_station}.
+#'   \item Extracts raw \code{waterlevel_m} at \code{timestamp_start} and
+#'         \code{timestamp_end}.
+#'   \item Computes a constant offset as \code{after\_break - before\_break}.
+#'   \item Subtracts this offset from \code{waterlevel_m_adj} for all
+#'         timestamps \code{>= timestamp_end}.
+#'   \item Sets \code{edit_offset = TRUE} for affected rows.
+#'   \item Writes a QA/QC log entry via \code{make_qaqc_log_row()} and
+#'         \code{qaqc_log_append()}.
+#' }
+#'
+#' @seealso \code{\link{adjust_waterlevel_spike}},
+#'   \code{\link{adjust_logger_NA}},
+#'   \code{\link{make_qaqc_log_row}},
+#'   \code{\link{qaqc_log_append}}
+#'
+#' @import dplyr
+#' @importFrom lubridate ymd_hms
+#'
+#' @examples
+#' \dontrun{
+#' station_wl_qc2 <- adjust_WL_offset(
+#'   input_data      = station_wl_qc,
+#'   select_station  = "WL_ALBR_ST_30",
+#'   timestamp_start = "2025-02-04 07:00:00",
+#'   timestamp_end   = "2025-02-09 00:00:00",
+#'   manual_note     = "Animal suspected to have moved logger",
+#'   log_root        = "data/testing/processed"
+#' )
+#' }
+#'
+#' @export
 
 adjust_WL_offset <- function(input_data,
                                          select_station,
@@ -13,7 +77,7 @@ adjust_WL_offset <- function(input_data,
   
   #  QAQC inputs
   if (missing(manual_note) || trimws(manual_note) == "") {
-    stop("adjust_waterlevel_cablebreak(): 'manual_note' must be a non-empty string.")
+    stop("adjust_wwl_offset(): 'manual_note' must be a non-empty string.")
   }
   
   # ---- Filter to selected station & sort -------------------------------------

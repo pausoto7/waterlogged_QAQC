@@ -1,3 +1,31 @@
+#' Conductivity QA/QC for a Single Station
+#'
+#' Applies automated quality-control checks to conductivity logger data.
+#' Flags and adjusts spikes, dry periods, temperature issues (including ice),
+#' and negative/near-zero water temperatures. Produces adjusted conductivity
+#' and temperature columns and writes detailed log entries via the QA/QC
+#' logging system.
+#'
+#'
+#' Current QAQC rules:
+#'   * Water temperature < 0.1°C is flagged as ICE.
+#'   * Slightly negative temperatures (-1 to 0°C) are corrected to 0°C.
+#'
+#' @param input_data Data frame containing conductivity logger records.
+#' @param select_station Character. Station code to filter.
+#' @param log_root Directory where QA/QC logs should be written.
+#' @param user Username recorded in QA/QC logs (default: system user).
+#' @param temp_low_limit_C Lower allowable water temperature (°C).
+#' @param temp_high_limit_C Upper allowable water temperature (°C).
+#' @param disturbance_threshold_uScm Numeric. Absolute jump considered a spike.
+#' @param dry_threshold_uScm Conductivity below this suggests dry conditions.
+#' @param air_water_diff_threshold_C Used when `airtemp_C` exists to determine
+#'   whether low conductivity is supported by similar air-water temperature.
+#'
+#' @return A data frame with adjusted values, QA/QC flags, and QC notes.
+#' @export
+#'
+#' @examples
 conductivity_qaqc <- function(
     input_data,
     select_station,
@@ -16,12 +44,11 @@ conductivity_qaqc <- function(
   #   2) Corrects slightly negative water temperatures between -1 and 0 °C to 0.
   # These thresholds are intentionally hard-coded because small negative temps
   # are almost always sensor noise, not real liquid-water temperatures.
+     ice_threshold_C       <- 0.1
+   near_zero_temp_window <- c(-1, 0)
   # ---------------------------------------------------------------------------
   
-  # Hard-coded thresholds
-  ice_threshold_C       <- 0.1
-  near_zero_temp_window <- c(-1, 0)
-  
+
   # ---- 1. Filter & basic checks ---------------------------------------------
   df <- input_data %>%
     dplyr::filter(site_station_code == select_station) %>%

@@ -1,7 +1,7 @@
 plot_qaqc_timeseries <- function(wl_data   = NULL,
                                  do_data   = NULL,
                                  baro_data = NULL,
-                                 co_data   = NULL,
+                                 cond_data   = NULL,
                                  select_station) {
   
   # ---- internal helpers ------------------------------------------------------
@@ -65,7 +65,7 @@ plot_qaqc_timeseries <- function(wl_data   = NULL,
   wl_df   <- normalize_df(wl_data)
   do_df   <- normalize_df(do_data)
   baro_df <- normalize_df(baro_data)
-  co_df   <- normalize_df(co_data)
+  co_df   <- normalize_df(cond_data)
   
   # If no explicit baro_data, see if WL carries baro columns
   if (is.null(baro_df) && !is.null(wl_df)) {
@@ -80,7 +80,7 @@ plot_qaqc_timeseries <- function(wl_data   = NULL,
   
   if (is.null(wl_df) && is.null(do_df) && is.null(baro_df) && is.null(co_df)) {
     stop("plot_qaqc_timeseries(): no data for station '", select_station,
-         "' in wl_data, do_data, baro_data, or co_data.")
+         "' in wl_data, do_data, baro_data, or cond_data.")
   }
   
   has_wl   <- !is.null(wl_df)   && all(c("waterlevel_m", "waterlevel_m_adj") %in% names(wl_df))

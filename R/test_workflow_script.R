@@ -15,6 +15,7 @@
   ##### WANT TO MAKE A DRIFT FUNCTION for WL and also other params! #######
   # Add field data functionality
   # Would be nice to have a function to compare visually between stations - probably similar code to plot_qaqc_timeseries but would be same metric diff stations
+  # versioning needs to change I think- the current versions don't really make sense and can add confusion if intermediate qaqc steps are done in a diff order
 
 
 # metadata file 
@@ -22,9 +23,10 @@
   # should we add a comments col?
   # check metadata qc script - does it use plot title to garner logger ID? If so may want to change b/c cond loggers had diff titles vs numbs
 
-# field data
+# Time zones
   
-  # How can we ensure people are putting in reference data in the correct time zone (during daylight savings periods especially). 
+  # if using lubridate, time zones will be automatic to the area which the script is run... how can we know the user is putting in the right
+  # timezone for where they are and R is reading it properly?
   
 
 
@@ -39,6 +41,8 @@
 # if you have multiple metric types in one folder; this function will give three of the same errors for this. Could be simplified so only one is given. 
 # Low/Range vs high range conductivity read file issue - see issue in github Issues
 
+source("R/utils.R")
+source("R/bind_hobo_files_helpers.R")
 source("R/bind_hobo_files.R") # bind_hobo_files -> output v0.1
 
 baro_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/baro", 
@@ -102,8 +106,9 @@ plot_qaqc_timeseries(
      # e.g. if diff baro is used, there should be a col that says what the correction is compared to first baro used
   # "baro_site_selection" non auto options could benefit from more testing. 
      # to run the non-auto functionality enter a specific baro station name.
+  # double check that this is using "qaqc"d barometric data
 
-
+source("R/add_nearest_baro_helpers.R")
 source("R/add_nearest_baro.R") # add nearest baro -> output v0.2
 
 input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
@@ -165,7 +170,7 @@ converted_percSat <- convert_do_mgl_percsat(DO_with_Baro[[1]],
 
 source("R/waterlevel_qaqc.R")
 
-# FYI - SPLIT THIS CODE UP TO BE TWO FUNCTIONS 1) waterlevel_complete_QAQC   2) waterlevel_qaqc_plot
+# FYI - I SPLIT THIS CODE UP TO BE TWO FUNCTIONS 1) waterlevel_complete_QAQC   2) waterlevel_qaqc_plot
 waterlevel_complete_QAQC <- waterlevel_qaqc(converted_data[[1]],
                                             log_root = "data/testing/processed", 
                                             select_station = "WL_ALBR_ST_30") 
@@ -195,7 +200,7 @@ station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC,
 source("R/plot_hydro_data.R")
 
 # plot
-waterlevel_qaqc_plot(qaqc_data = station_wl_qc,
+plot_qaqc_timeseries(wl_data = station_wl_qc,
                 select_station = "WL_ALBR_ST_30")
 
 
@@ -221,7 +226,7 @@ station_wl_qc2 <- adjust_WL_offset(input_data = station_wl_qc,
 
 source("R/plot_hydro_data.R")
 # plot
-waterlevel_qaqc_plot(qaqc_data = station_wl_qc2,
+plot_qaqc_timeseries(wl = station_wl_qc2,
                      select_station = "WL_ALBR_ST_30")
 
 
@@ -328,6 +333,7 @@ res_wl <- get_logger_data(
 
 # getting warnings#####################################################################
 
+source("R/conductivity_qaqc.R")
 source("R/conductivity_qaqc_all.R")
 
 # Run conductivity QAQC for all conductivity stations in metadata ----------
@@ -343,11 +349,20 @@ all_checked_cond_data <- conductivity_qaqc_all(
   air_water_diff_threshold_C = 2
 )
 
-# Quick sanity check for one station --------------------------------------
-cond_mile_we_40 <- all_checked_cond_data |>
-  dplyr::filter(site_station_code == "CO_MILE_WE_40")
 
-dplyr::glimpse(cond_mile_we_40)
-table(cond_mile_we_40$cond_qaqc_code, useNA = "ifany")
+# 1) Percent missing temp by station
+all_checked_cond_data %>%
+  group_by(site_station_code) %>%
+  summarise(
+    n = n(),
+    pct_temp_na = mean(is.na(watertemp_C_adj)) * 100
+  ) %>%
+  arrange(desc(pct_temp_na))
 
 
+plot_qaqc_timeseries(cond_data = all_checked_cond_data,
+                     select_station = "CO_TUMT_WE_40")
+
+source("R/conductivity_temp_compensation.R")
+
+compensated_cond <- conductivity_temp_compensation(all_checked_cond_data)

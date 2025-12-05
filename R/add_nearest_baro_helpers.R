@@ -1,13 +1,24 @@
 
-
-
-normalize_string <- function(x) {
-  x <- tolower(x)
-  x <- trimws(x)
-  x <- gsub("\\s+", "", x)   # remove internal spaces
-  x
-}
-
+#' Resolve metric argument for barometric assignment
+#'
+#' Normalizes and validates the \code{metric} argument used in
+#' \code{add_nearest_baro()}, ensuring it is one of \code{"DO"},
+#' \code{"water level"}, or \code{"both"}. Returns a list describing the
+#' normalized input and the set of metric keys that require barometric data.
+#'
+#' @param metrics A single character string specifying which metrics require
+#'   barometric data (e.g., \code{"DO"}, \code{"water level"}, or
+#'   \code{"both"}).
+#'
+#' @return A list with components:
+#'   \itemize{
+#'     \item \code{metrics_raw}: normalized version of \code{metrics}
+#'       (lowercase, no spaces).
+#'     \item \code{metrics_need_baro}: character vector of metric keys that
+#'       should receive barometric data.
+#'   }
+#'
+#' @keywords internal
 resolve_metrics_param <- function(metrics) {
   # length check
   if (length(metrics) != 1L) {
@@ -41,43 +52,37 @@ resolve_metrics_param <- function(metrics) {
 }
 
 
-
-find_na_runs <- function(df, value_col = "airpress_kPa", add_step = TRUE) {
-  stopifnot("timestamp" %in% names(df))
-  vcol <- rlang::sym(value_col)
-  
-  # ensure ordered
-  df <- df %>% arrange(timestamp)
-  
-  # estimate native step (for regular series)
-  dt <- suppressWarnings(median(diff(df$timestamp), na.rm = TRUE))
-  add_dt <- if (add_step && is.finite(as.numeric(dt))) dt else as.difftime(0, units = "secs")
-  
-  # logical NA vector
-  is_na <- is.na(df[[value_col]])
-  
-  if (!any(is_na)) {
-    return(tibble(
-      gap_id = integer(), gap_start = as.POSIXct(character()), gap_end = as.POSIXct(character()),
-      n_missing = integer(), duration = difftime(character(), character())
-    ))
-  }
-  
-  # start = NA now & (previous non-NA or row 1)
-  starts <- which(is_na & !dplyr::lag(is_na, default = FALSE))
-  # end   = NA now & (next non-NA or last row)
-  ends   <- which(is_na & !dplyr::lead(is_na, default = FALSE))
-  
-  tibble(
-    gap_id    = seq_along(starts),
-    gap_start = df$timestamp[starts],
-    gap_end   = df$timestamp[ends],
-    n_missing = ends - starts + 1
-  ) %>%
-    mutate(duration = (gap_end - gap_start) + add_dt)
-}
-
-
+#' Calibrate and stitch multiple barometric series
+#'
+#' Adjusts one or more barometric pressure time series to the scale of a
+#' reference series using simple linear regression, and returns adjusted
+#' columns along with regression diagnostics. Typically used internally by
+#' \code{add_nearest_baro()} to place multiple barometric stations onto a
+#' common reference scale.
+#'
+#' @param wide_press A wide data frame containing a \code{timestamp} column
+#'   and one column per barometric station specified in \code{baro_cols}.
+#' @param baro_cols Character vector of column names in \code{wide_press}
+#'   representing barometric series.
+#' @param ref_col Name of the reference barometric column in \code{wide_press}
+#'   to which all other series will be aligned.
+#' @param min_overlap Integer; minimum number of overlapping points required
+#'   between the reference and an alternate series before regression-based
+#'   adjustment is considered reliable. A warning is issued if overlap is
+#'   fewer than this.
+#'
+#' @return A list with components:
+#'   \itemize{
+#'     \item \code{wide_press}: the input data frame with additional
+#'       \code{"<baro_col>_adj"} columns containing adjusted series, including
+#'       an adjusted copy of the reference column.
+#'     \item \code{reg_summary}: a data frame summarizing the regression used
+#'       for each alternate series (columns include \code{alt_col},
+#'       \code{ref_col}, \code{n_overlap}, \code{intercept}, \code{slope},
+#'       and \code{r2}).
+#'   }
+#'
+#' @keywords internal
 calibrate_baro_series <- function(wide_press,
                                   baro_cols = NULL,
                                   ref_col   = NULL,

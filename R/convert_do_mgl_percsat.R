@@ -1,59 +1,98 @@
-#' Dissolved oxygen conversion
+#' Convert dissolved oxygen (mg/L) to percent air saturation
 #'
-#' Convert dissolved oxygen from mg/L to percent air saturation.
+#' Computes percent air saturation from dissolved oxygen concentrations
+#' (\code{do_mgl}), water temperature (\code{watertemp_C}), and barometric
+#' pressure (\code{airpress_kPa}), following standard Weiss (1970/1974)
+#' oxygen solubility equations.
 #'
-#' Assumes input has already been QA/QC'd and standardized to metric-based
+#' The function also writes per-site, per-year CSV files using the naming:
+#'
+#' \preformatted{
+#'   <site>_DO_<startdate>_<enddate>_<version>.csv
+#' }
+#'
+#' and stores them in:
+#'
+#' \preformatted{
+#'   <output_dir>/<year>/processed/
+#' }
+#'
+#' Input data must already be QA/QC'd and standardized to metric-based
 #' column names:
-#'   - do_mgl        (dissolved oxygen, mg/L)
-#'   - watertemp_C   (water temperature, °C)
-#'   - airpress_kPa  (barometric pressure, kPa)
+#' \itemize{
+#'   \item \code{timestamp}        (POSIXct, UTC)
+#'   \item \code{site_station_code}
+#'   \item \code{do_mgl}           dissolved oxygen (mg/L)
+#'   \item \code{watertemp_C}      water temperature (°C)
+#'   \item \code{airpress_kPa}     barometric pressure (kPa)
+#' }
 #'
-#' @param do_data Data frame with DO, temperature, pressure, timestamp,
-#'   and site_station_code.
-#' @param output_dir Optional directory where per-site, per-year CSVs
-#'   should be written. If NULL (default), no files are written.
-#' @param version_label Character tag for output files (e.g., "v0.3").
+#' Values of \code{-888.88} in \code{do_mgl} are treated as missing.
 #'
-#' @return A data frame with a new column `do_percsat` (percent air saturation).
+#' @param do_data A data frame containing DO, temperature, barometric
+#'   pressure, timestamp, and site identifiers. Must contain the columns:
+#'   \code{timestamp}, \code{site_station_code}, \code{do_mgl},
+#'   \code{watertemp_C}, and \code{airpress_kPa}.
+#' @param output_dir Character scalar. Root folder where per-year,
+#'   per-site output files will be written. Must already exist.
+#' @param version_label Character version string appended to output filenames
+#'   (e.g., \code{"v0.3"}).
+#'
+#' @return A data frame identical to \code{do_data} but with an additional
+#'   numeric column \code{do_percsat} (percent air saturation).
+#'   Files are written to disk as side effects.
+#'
+#' @details
+#' The calculation uses Weiss (1970, 1974) oxygen solubility equations.
+#' Barometric pressure is internally converted from kPa to atmospheres.
+#'
+#' @references
+#' Weiss, R. F. (1970). *The solubility of nitrogen, oxygen and argon in water
+#'   and seawater.* Deep-Sea Research.
+#'
+#' Weiss, R. F. (1974). *Oxygen solubility in water and seawater based on
+#'   the virial equation.* Deep-Sea Research.
+#'
 #' @export
+#'
 #' @import dplyr
-#' @importFrom lubridate year date
+#' @importFrom lubridate year date ymd_hms
+
+
 convert_do_mgl_percsat <- function(do_data,
-                                   output_dir = NULL,
+                                   output_dir,
                                    version_label = "v0.3") {
-  
   
   # ---- output_dir required + validation ----
   if (missing(output_dir) || is.null(output_dir)) {
     stop("`output_dir` must be supplied — writing CSVs is mandatory.")
   }
   
-  if (!is.character(output_dir) || length(output_dir) != 1) {
-    stop("output_dir` must be a single character string path.")
+  if (!is.character(output_dir) || length(output_dir) != 1L) {
+    stop("`output_dir` must be a single character string path.")
   }
   
   if (!dir.exists(output_dir)) {
     stop("`output_dir` does not exist: ", output_dir)
   }
   
-  # normalize trailing slash
-  if (!endsWith(output_dir, "/")) {
-    output_dir <- paste0(output_dir, "/")
-  }
-  
-  
-  #  check
-  req <- c("do_mgl", "watertemp_C", "airpress_kPa")
-  
+  # ---- required columns ------------------------------------------------------
+  req <- c("timestamp", "site_station_code", "do_mgl", "watertemp_C", "airpress_kPa")
   missing <- setdiff(req, names(do_data))
   
   if (length(missing) > 0) {
-    stop("Missing required columns: ", paste(missing, collapse=", "))
+    stop("Missing required columns: ", paste(missing, collapse = ", "))
   }
   
+  # Ensure timestamp is POSIXct (UTC)
+  if (!inherits(do_data$timestamp, "POSIXct")) {
+    do_data$timestamp <- lubridate::ymd_hms(do_data$timestamp, tz = "UTC")
+  }
+  
+  # ---- main calculation ------------------------------------------------------
   do_data_reviewed <- do_data %>%
     dplyr::mutate(
-      # valid rows 
+      # valid rows
       valid = !is.na(do_mgl) &
         do_mgl != -888.88 &
         !is.na(watertemp_C) &
@@ -81,20 +120,23 @@ convert_do_mgl_percsat <- function(do_data,
       
       do_sat_real = do_1atm * F_p,
       
-      do_percsat = case_when(
-        valid ~ signif(100 * (do_mgl / do_sat_real), 4),
-        TRUE  ~ NA_real_
+      do_percsat = dplyr::case_when(
+        valid & !is.na(do_sat_real) & do_sat_real > 0 ~
+          signif(100 * (do_mgl / do_sat_real), 4),
+        TRUE ~ NA_real_
       )
-    ) 
+    )
   
-  #kept separate from above for easier code QC purposes
+  # strip intermediate columns for return
   do_data_reviewed <- do_data_reviewed %>%
-    select(-valid, -temp_K, -press_atm, -do_1atm, -u_atm,
-           -theta_o, -F_p, -do_sat_real)
+    dplyr::select(
+      -valid, -temp_K, -press_atm, -do_1atm, -u_atm,
+      -theta_o, -F_p, -do_sat_real
+    )
   
-
-  # ---- write outputs: per year × site ----
+  # ---- write outputs: per year × site ---------------------------------------
   df_write <- do_data_reviewed %>%
+    dplyr::arrange(site_station_code, timestamp) %>%
     dplyr::mutate(
       year = lubridate::year(timestamp),
       date = lubridate::date(timestamp)
@@ -141,10 +183,10 @@ convert_do_mgl_percsat <- function(do_data,
     utils::write.csv(dat_to_write, out_path, row.names = FALSE)
     
     message(sprintf(
-      "✔ DO conversion (%s) written for %s → %s/processed",
+      "DO conversion (%s) written for %s -> %s/processed",
       version_label, site_k, year_j
     ))
   }
   
-  return(do_data_reviewed)
+  do_data_reviewed
 }

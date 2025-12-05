@@ -1,3 +1,69 @@
+
+#' Set logger values to NA over a time window and log the change
+#'
+#' Convenience wrapper to set adjusted logger values to \code{NA} over a
+#' specified time window (or, optionally, for all data below a dry threshold)
+#' for a given station and metric. Typical use cases are removing periods
+#' affected by ice, dry conditions, or logger disturbances after visual QA/QC.
+#'
+#' The function updates the appropriate \code{*_adj} columns
+#' (e.g. \code{waterlevel_m_adj}, \code{do_mgl_adj}, \code{do_percsat_adj},
+#' \code{watertemp_C_adj}, \code{airpress_kPa_adj},
+#' \code{conductivity_uScm_adj}) and writes an entry to the QA/QC log via
+#' \code{make_qaqc_log_row()} and \code{qaqc_log_append()}.
+#'
+#' @param input_data Data frame containing logger data for one or more stations,
+#'   including a \code{timestamp} column, \code{site_station_code}, and the
+#'   relevant adjusted fields (e.g. \code{waterlevel_m_adj},
+#'   \code{do_mgl_adj}, etc.).
+#' @param select_station Station code to adjust (value of
+#'   \code{site_station_code}).
+#' @param metric Character string specifying which metric to adjust. Accepted
+#'   values include \code{"waterlevel"}, \code{"dissolvedoxygen"},
+#'   \code{"watertemp"}, \code{"barometric"}, \code{"conductivity"} and
+#'   common variants (e.g. \code{"water level"}, \code{"DO"}, \code{"BARO"}).
+#' @param reason_to_adjust Character; reason for the adjustment. One of
+#'   \code{"ice"}, \code{"dry"}, or \code{"disturbance"}. This controls which
+#'   \code{edit_*} flag column is set and how the NA adjustment is applied.
+#' @param timestamp_start,timestamp_end Character date-time values defining
+#'   the adjustment window, in \code{"YYYY-MM-DD HH:MM:SS"} format, parsed
+#'   with \code{lubridate::ymd_hms()}.
+#' @param keep_temp Logical; if \code{TRUE}, water temperature adjustments are
+#'   skipped for disturbance events (where applicable). Ignored for metrics
+#'   where no temperature is associated.
+#' @param apply_to_all_data Logical; if \code{FALSE} (default), only values
+#'   within \code{timestamp_start}–\code{timestamp_end} are set to NA. If
+#'   \code{TRUE} and a water level column is present, a dry threshold is
+#'   derived from the window and applied to the whole record (for supported
+#'   metrics and reasons).
+#' @param manual_note Character; required free-text explanation describing why
+#'   this adjustment is being made. Stored in the QA/QC log.
+#' @param log_root Root directory where QA/QC logs are stored (e.g.
+#'   \code{"data/testing/processed"}). The actual log path is derived from
+#'   this root, station, and metric.
+#' @param user Character; user name recorded in the log entry. Defaults to
+#'   \code{Sys.info()[["user"]]}.
+#'
+#' @return A data frame for the selected station with updated adjusted fields
+#'   and edit flags. Two internal helper columns (\code{in_window} and
+#'   \code{edit_na}) are removed before returning.
+#'
+#' @details
+#' The function is metric-aware: it only modifies the adjusted fields relevant
+#' to the requested \code{metric} and sets a matching \code{edit_*} flag
+#' (e.g. \code{edit_remove_ice}, \code{edit_remove_dry},
+#' \code{edit_remove_disturbance}). If no rows fall within the time window
+#' (or dry threshold) for the given station, a warning is issued and no log
+#' entry is written.
+#'
+#' @seealso \code{\link{waterlevel_qaqc}}, \code{\link{dissox_qaqc}},
+#'   \code{\link{conductivity_qaqc_all}}, \code{\link{make_qaqc_log_row}},
+#'   \code{\link{qaqc_log_append}}
+#'
+#' @import dplyr
+#' @importFrom lubridate ymd_hms
+#'
+#' @export
 adjust_logger_NA <- function(
     input_data,
     select_station,
@@ -54,7 +120,7 @@ adjust_logger_NA <- function(
     metric_norm == "DO"   ~ "do_mgl_adj",
     metric_norm == "WT"   ~ "watertemp_C_adj",
     metric_norm == "BARO" ~ "airpress_kPa_adj",
-    metric_norm == "COND" ~ "conductivity_uScm_adj",
+    metric_norm == "COND" ~ "conduct_uScm_adj",
     TRUE                  ~ NA_character_
   )
   

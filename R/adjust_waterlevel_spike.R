@@ -1,5 +1,74 @@
 
-
+#' Flatten a water-level spike over a specified time window
+#'
+#' Replaces a spike (or other unrealistic jump) in water level with a straight
+#' line between two timestamps for a single station, and records the change in
+#' the QA/QC log.
+#'
+#' The function:
+#' \itemize{
+#'   \item Filters \code{input_data} to \code{select_station}.
+#'   \item Locates the raw water level at \code{timestamp_start} and
+#'         \code{timestamp_end}.
+#'   \item Linearly interpolates between these two values over the full
+#'         time window.
+#'   \item Writes the interpolated values into \code{waterlevel_m_adj} for
+#'         all timestamps in the window.
+#'   \item Sets \code{edit_spike_flat = TRUE} for affected rows.
+#'   \item Appends an entry to the QA/QC log via \code{make_qaqc_log_row()}
+#'         and \code{qaqc_log_append()}.
+#' }
+#'
+#' @param input_data Data frame containing water-level data for one or more
+#'   stations, including \code{timestamp}, \code{site_station_code},
+#'   \code{waterlevel_m}, and \code{waterlevel_m_adj}.
+#' @param select_station Character; station code to adjust (value of
+#'   \code{site_station_code}).
+#' @param timestamp_start,timestamp_end Character date-time values defining
+#'   the spike window, in \code{"YYYY-MM-DD HH:MM:SS"} format, parsed with
+#'   \code{lubridate::ymd_hms()}.
+#' @param reason_to_adjust Character; reason for flattening. One of
+#'   \code{"ice"} or \code{"disturbance"}. Used to choose the QA/QC code
+#'   written to the log.
+#' @param manual_note Character; required free-text explanation describing why
+#'   this adjustment is being made. Stored in the QA/QC log.
+#' @param log_root Root directory where QA/QC logs are stored (for example,
+#'   \code{"data/testing/processed"}). The actual log path is derived from
+#'   this root, station, and metric.
+#' @param user Character; user name recorded in the log entry. Defaults to
+#'   \code{Sys.info()[["user"]]}.
+#'
+#' @return A data frame for \code{select_station} with updated
+#'   \code{waterlevel_m_adj} values and \code{edit_spike_flat} flag. The input
+#'   columns are preserved; only adjusted values and flags are changed.
+#'
+#' @details
+#' The start and end water levels are taken from the raw
+#' \code{waterlevel_m} column at \code{timestamp_start} and
+#' \code{timestamp_end}. The interpolation is performed in time units of
+#' seconds and written into \code{waterlevel_m_adj}. If the function cannot
+#' find unique raw values at both timestamps, it errors.
+#'
+#' @seealso \code{\link{waterlevel_qaqc}}, \code{\link{adjust_logger_NA}},
+#'   \code{\link{make_qaqc_log_row}}, \code{\link{qaqc_log_append}}
+#'
+#' @import dplyr
+#' @importFrom lubridate ymd_hms
+#'
+#' @examples
+#' \dontrun{
+#' adjusted_wl <- adjust_waterlevel_spike(
+#'   input_data      = waterlevel_complete_QAQC,
+#'   select_station  = "WL_ALBR_ST_30",
+#'   timestamp_start = "2025-02-11 21:00:00",
+#'   timestamp_end   = "2025-02-20 16:00:00",
+#'   reason_to_adjust = "ice",
+#'   manual_note      = "Suspected ice formation due to freezing temps",
+#'   log_root         = "data/testing/processed"
+#' )
+#' }
+#'
+#' @export
 adjust_waterlevel_spike <- function(input_data,
                                     select_station,
                                     timestamp_start,

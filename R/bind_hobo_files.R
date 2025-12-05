@@ -1,9 +1,58 @@
-
-library(tidyverse)
-
-
-source("R/bind_hobo_files_helpers.R")
-
+#' Bind HOBO logger CSVs and attach site metadata
+#'
+#' Reads all HOBO CSV files in a folder, links each logger serial number to
+#' deployment metadata, trims records to deployment/removal windows, standardises
+#' core column names by metric (barometric, waterlevel, DO, TidbiT temperature,
+#' conductivity), writes per-station/year v0.1 CSVs, and returns a compiled
+#' long data frame plus a quick QC plot.
+#'
+#' @param path_to_raw_folder Path to the folder containing raw HOBO CSV files
+#'   (one or more loggers, all of the same metric). For example
+#'   `"data/raw/level"` or `"data/testing/raw/COND"`.
+#' @param path_to_output_folder Root folder where processed v0.1 CSVs will be
+#'   written. Files are created under `<path_to_output_folder>/<year>/processed`,
+#'   e.g. `"data/processed"`.
+#' @param metadata_path Path to a metadata CSV that has at least logger serial
+#'   numbers and deployment/removal information (e.g. `sn`, `metric`,
+#'   `site_station_code`, `timestamp_deploy`, `timestamp_remove`, `model`).
+#' @param timestamp_timezone Time zone used when filling in open-ended
+#'   deployments (where `timestamp_remove` is `NA`). Defaults to `"UTC"`.
+#'
+#' @details
+#' The function:
+#'
+#' * Reads all `*.csv` files in `path_to_raw_folder` using
+#'   [extract_alldata_from_file()] and binds them into a single data frame.
+#' * Uses [QAQC_metadata()] to clean/standardise the metadata file.
+#' * Assigns `site_station_code` to each record based on `sn` and the
+#'   deployment/removal timestamps.
+#' * Enforces a single `metric` per folder (e.g., all barometric, all
+#'   waterlevel, all conductivity).
+#' * Standardises core column names depending on logger/metric, e.g.
+#'   `airpress_kPa`, `waterpress_kPa`, `watertemp_C`, `airtemp_C`,
+#'   `do_mgl`, `conduct_uScm`, and `conduct_range_used`.
+#' * For conductivity (U24) loggers, unifies low/full range columns into a
+#'   single `conduct_uScm` column and records which range was used.
+#' * Writes one v0.1 CSV per station per year to
+#'   `<path_to_output_folder>/<year>/processed` with filenames of the form
+#'   `<site>_<LOGGER>_<startdate>_<enddate>_v0.1.csv`.
+#'
+#' @return A list of length 2:
+#' \describe{
+#'   \item{[[1]]}{A data frame of compiled logger data (`sites_compiled`),
+#'   with `site_station_code`, `sn`, `timestamp`, `logger_type`, `metric`, and
+#'   metric-specific value columns.}
+#'   \item{[[2]]}{A `ggplot` object showing the primary value column vs time,
+#'   faceted by `site_station_code`, for quick visual QA/QC.}
+#' }
+#'
+#' @seealso [QAQC_metadata()], [extract_alldata_from_file()]
+#'
+#' @import ggplot2
+#' @import dplyr
+#' @importFrom purrr map_df
+#' @importFrom lubridate mdy_hms now year date
+#' @export
 bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_path,  timestamp_timezone = "UTC") {
   
   # QAQC and format metadata file
@@ -135,18 +184,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   # setting this sa default. That way if logger_header is not assigned in anything below we can create an error.
   logger_header <- NA_character_ 
   
-  #  TEMPERATURE HANDLING (°C or °F) ------------------
 
-  convert_F_to_C <- function(x) (x - 32) * (5/9)
-  
-  rename_temp_col <- function(df, newname, colidx = 4) {
-    # rename the column if it exists
-    if (ncol(df) >= colidx) {
-      colnames(df)[colidx] <- newname
-    }
-    df
-  }
-  
   # DO LOGGER -----------------------------------------------------------
   if (colnames(sites_compiled)[3] == "DO conc mg/L") {
     colnames(sites_compiled)[3] <- "do_mgl"
@@ -222,17 +260,108 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   }
   
   # CONDUCTIVITY LOGGER U24 ---------------------------------------------
-  if (colnames(sites_compiled)[3] %in% c("Low Range μS/cm", "Full Range μS/cm")) {
-    colnames(sites_compiled)[3] <- "conduct_uScm"
-    logger_header <- "CO"
+  # Only run this block if the folder metric is conductivity
+  if (measurement_type == "conductivity") {
     
-    if (ncol(sites_compiled) >= 4) {
-      if (colnames(sites_compiled)[4] == "Temp °C") {
-        colnames(sites_compiled)[4] <- "watertemp_C"
+    # --- 1. Identify conductivity columns (Low / Full range) -----------------
+    low_cols  <- grep("^Low Range",  names(sites_compiled), value = TRUE)
+    full_cols <- grep("^Full Range", names(sites_compiled), value = TRUE)
+    
+    has_low  <- length(low_cols)  > 0
+    has_full <- length(full_cols) > 0
+    
+    if (!has_low && !has_full) {
+      warning(
+        "bind_hobo_files(): measurement_type = 'conductivity' but no 'Low Range' ",
+        "or 'Full Range' conductivity columns were found. Skipping conductivity handling."
+      )
+    } else {
+      logger_header <- "COND"
+      
+      # Use the first matching low/full column if multiple (shouldn't normally happen)
+      low_col  <- if (has_low)  low_cols[1]  else NA_character_
+      full_col <- if (has_full) full_cols[1] else NA_character_
+      
+      # --- 2. Build unified conduct_uScm + conduct_range_used -----------------
+      if (has_low && has_full) {
+        sites_compiled <- sites_compiled %>%
+          dplyr::mutate(
+            conduct_uScm = dplyr::case_when(
+              !is.na(.data[[low_col]])  ~ as.numeric(.data[[low_col]]),
+              !is.na(.data[[full_col]]) ~ as.numeric(.data[[full_col]]),
+              TRUE                       ~ NA_real_
+            ),
+            conduct_range_used = dplyr::case_when(
+              !is.na(.data[[low_col]])  ~ "Low Range",
+              !is.na(.data[[full_col]]) ~ "Full Range",
+              TRUE                       ~ NA_character_
+            )
+          )
+      } else if (has_low) {
+        sites_compiled <- sites_compiled %>%
+          dplyr::mutate(
+            conduct_uScm = as.numeric(.data[[low_col]]),
+            conduct_range_used = dplyr::if_else(
+              !is.na(.data[[low_col]]),
+              "Low Range",
+              NA_character_
+            )
+          )
+      } else if (has_full) {
+        sites_compiled <- sites_compiled %>%
+          dplyr::mutate(
+            conduct_uScm = as.numeric(.data[[full_col]]),
+            conduct_range_used = dplyr::if_else(
+              !is.na(.data[[full_col]]),
+              "Full Range",
+              NA_character_
+            )
+          )
       }
-      if (colnames(sites_compiled)[4] == "Temp °F") {
-        sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
-        colnames(sites_compiled)[4] <- "watertemp_C"
+      
+      if ("conduct_range_used" %in% names(sites_compiled)) {
+        sites_compiled$conduct_range_used <- factor(
+          sites_compiled$conduct_range_used,
+          levels = c("Low Range", "Full Range")
+        )
+      }
+      
+      # --- 3. Temperature handling (robust to weird column names) ------------
+      # If watertemp_C already exists, don't overwrite it.
+      if (!"watertemp_C" %in% names(sites_compiled)) {
+        
+        # Look for any column that looks like a temperature column
+        temp_candidates <- names(sites_compiled)[
+          grepl("Temp", names(sites_compiled), ignore.case = TRUE) &
+            !grepl("Coupler", names(sites_compiled), ignore.case = TRUE) &
+            !grepl("Detach", names(sites_compiled), ignore.case = TRUE)
+        ]
+        
+        if (length(temp_candidates) == 0) {
+          warning(
+            "bind_hobo_files(): No temperature column found for conductivity logger(s). ",
+            "`watertemp_C` set to NA."
+          )
+          sites_compiled$watertemp_C <- NA_real_
+          
+        } else {
+          temp_col <- temp_candidates[1]
+          
+          # Try to infer °C vs °F.
+          # If we have a data*_unit column in °F, convert; otherwise assume °C.
+          units_cols <- intersect(names(sites_compiled), c("data1_unit", "data2_unit"))
+          units_val  <- if (length(units_cols)) unique(na.omit(unlist(sites_compiled[units_cols]))) else character(0)
+          
+          is_F <- any(grepl("°F|degF", units_val, ignore.case = TRUE))
+          
+          temp_vec <- suppressWarnings(as.numeric(sites_compiled[[temp_col]]))
+          
+          if (is_F) {
+            temp_vec <- convert_F_to_C(temp_vec)
+          }
+          
+          sites_compiled$watertemp_C <- temp_vec
+        }
       }
     }
   }
