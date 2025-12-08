@@ -186,26 +186,15 @@ plot_qaqc_timeseries(
 
 source("R/drift_wl.R")
 
+drift_pts <- tibble::tibble(
+  timestamp = c("2024-10-10 10:00:00",
+                "2025-02-04 00:00:00",
+                "2025-06-01 00:00:00"),
+  drift_m   = c(0.0, 1.20, -0.50)
+)
 
-# station_wl_drift <- waterlevel_drift_correction(
-#   input_data      = station_wl_qc,
-#   select_station  = "ALBR_ST_30",
-#   log_root        = "data/testing/processed",
-#   timestamp_start = "2024-10-10 10:00:00",
-#   timestamp_end   = "2025-02-04 00:00:00",
-#   drift_m         = 1.2,   
-#   manual_note     = "Logger drifted +1.2 m relative to staff gauge by 2025-04-15."
-# )
-# 
-# drift_pts <- tibble::tibble(
-#   timestamp = c("2024-03-01 00:00:00",
-#                 "2024-06-01 00:00:00",
-#                 "2024-09-01 00:00:00"),
-#   drift_m   = c(0.0, 0.20, -0.05)
-# )
-
-station_wl_qc2 <- wl_apply_multipoint_drift(
-  input_data     = station_wl_qc,
+station_wl_qc2 <- wl_multipoint_correction(
+  input_data     = waterlevel_complete_QAQC,
   select_station = "ALBR_ST_30",
   log_root       = "data/testing/processed",
   drift_points   = drift_pts,
@@ -213,12 +202,8 @@ station_wl_qc2 <- wl_apply_multipoint_drift(
 )
 
 
-
-
-
-
 plot_qaqc_timeseries(
-  wl_data   = station_wl_drift,
+  wl_data   = station_wl_qc2,
   do_data   = NULL,
   baro_data = NULL,   
   select_station = "ALBR_ST_30"

@@ -15,7 +15,8 @@
 #'   \describe{
 #'     \item{timestamp}{Drift control timestamps (POSIXct or character).}
 #'     \item{drift_m}{Numeric drift (m) at each timestamp. Positive means
-#'     the logger is reading too high (we will subtract this amount).}
+#'     the logger is reading too low (we will add this amount to bring
+#'     the series up).}
 #'   }
 #'   Must contain at least two rows.
 #' @param user Character. Username for the QA/QC log; defaults to system user.
@@ -154,7 +155,7 @@ wl_multipoint_correction <- function(input_data,
   # NOTE: outside [t_min, t_max], correction remains 0 by design (no carry-forward)
   
   # ---- apply correction to waterlevel_m_adj ---------------------------------
-  station_df$waterlevel_m_adj <- station_df$waterlevel_m_adj - correction
+  station_df$waterlevel_m_adj <- station_df$waterlevel_m_adj + correction
   
   # ---- write QA/QC log row --------------------------------------------------
   metric   <- "WL"
