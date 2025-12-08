@@ -370,7 +370,7 @@ reference_data <- QAQC_reference_data(reference_data)
 source("R/drift_conductivity.R") # missing reference data with these cols: ysi_timestamp, ysi_conduct_uScm, ysi_watertemp_C
                                  # to be able to QAQC this function
 
-drif_corrected <- correct_drift(
+cond_drif_corrected <- conductivity_drift(
   input_data  = all_checked_cond_data,
   ref_data = reference_data,
   select_station = "TUMT_WE_40"
