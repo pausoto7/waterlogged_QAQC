@@ -147,23 +147,9 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
                                            path_to_output_folder= "data/testing/processed") 
 
 
-# convert do mgl percsat -----------------------------------------------------------------
-
-# double check code to check that that math still makes sense for conversion after some code changes
-# do we really need version input here?
 
 
-source("R/convert_do_mgl_percsat.R")
-
-converted_percSat <- convert_do_mgl_percsat(DO_with_Baro[[1]],
-                                   output_dir = "data/testing/processed",
-                                   version_label = "v0.3")
-
-
-
-
-
-# waterlevel_qaqc -----------------------------------------------------------------------
+# WATER LEVEL QAQC  -----------------------------------------------------------------------------
 
 
 
@@ -196,7 +182,66 @@ plot_qaqc_timeseries(
   select_station = "ALBR_ST_30"
 )
 
+# Do WL drift correction -------------------------------------------
 
+source("R/drift_wl.R")
+
+
+# station_wl_drift <- waterlevel_drift_correction(
+#   input_data      = station_wl_qc,
+#   select_station  = "ALBR_ST_30",
+#   log_root        = "data/testing/processed",
+#   timestamp_start = "2024-10-10 10:00:00",
+#   timestamp_end   = "2025-02-04 00:00:00",
+#   drift_m         = 1.2,   
+#   manual_note     = "Logger drifted +1.2 m relative to staff gauge by 2025-04-15."
+# )
+# 
+# drift_pts <- tibble::tibble(
+#   timestamp = c("2024-03-01 00:00:00",
+#                 "2024-06-01 00:00:00",
+#                 "2024-09-01 00:00:00"),
+#   drift_m   = c(0.0, 0.20, -0.05)
+# )
+
+station_wl_qc2 <- wl_apply_multipoint_drift(
+  input_data     = station_wl_qc,
+  select_station = "ALBR_ST_30",
+  log_root       = "data/testing/processed",
+  drift_points   = drift_pts,
+  manual_note    = "Multi-point drift based on  manual checks."
+)
+
+
+
+
+
+
+plot_qaqc_timeseries(
+  wl_data   = station_wl_drift,
+  do_data   = NULL,
+  baro_data = NULL,   
+  select_station = "ALBR_ST_30"
+)
+
+
+
+
+# adjust water level offset --------------------------------------------------------------
+#(PREVIOUSLY, ADJUST WATER LEVEL CABLE BREAK - RENAMED TO MAKE MORE UNIVERSAL)
+
+# shouldn't we have to add what direction and how much to move this offset?? We just assume that the start/end is right? Not sure about this logic
+# I think adding a manual offset could make sense too
+
+source("R/adjust_wl_offset.R")
+
+station_wl_qc2 <- adjust_WL_offset(input_data = station_wl_qc,
+                                   select_station = "ALBR_ST_30",
+                                   timestamp_start = "2025-02-04 07:00:00",
+                                   timestamp_end = "2025-02-09 00:00:00" ,
+                                   manual_note = "Suspected storm moved logger",
+                                   log_root = "data/testing/processed",
+                                   user = Sys.info()[["user"]])
 
 
 # adjust water level spike ---------------------------------------------------------------
@@ -214,32 +259,9 @@ station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC,
                                            log_root = "data/testing/processed", 
                                            user = Sys.info()[["user"]])
 
-# plot hydro -----------------------------------------------------------------------------------
 
 
-plot_qaqc_timeseries(
-  wl_data   = station_wl_qc,
-  do_data   = NULL,
-  baro_data = NULL,   
-  select_station = "ALBR_ST_30"
-)
 
-
-# adjust water level offset --------------------------------------------------------------
-  #(PREVIOUSLY, ADJUST WATER LEVEL CABLE BREAK - RENAMED TO MAKE MORE UNIVERSAL)
-
-# shouldn't we have to add what direction and how much to move this offset?? We just assume that the start/end is right? 
-# I think adding a manual offset could make sense too
-
-source("R/adjust_wl_offset.R")
-
-station_wl_qc2 <- adjust_WL_offset(input_data = station_wl_qc,
-                                 select_station = "ALBR_ST_30",
-                                 timestamp_start = "2025-02-04 07:00:00",
-                                 timestamp_end = "2025-02-09 00:00:00" ,
-                                 manual_note = "Suspected storm moved logger",
-                                 log_root = "data/testing/processed",
-                                 user = Sys.info()[["user"]])
 
 # plot -------------------------------------------------------------------------------
   # would like to look into playing around with x axis changing with amount of zoom in? 
@@ -251,28 +273,6 @@ plot_qaqc_timeseries(
   baro_data = NULL,   # from barometric_qaqc(), optional
   select_station = "ALBR_ST_30"
 )
-
-
-
-
-# DISSOLVED OXYGEN -----------------------------------------------------------------------
-
-source("R/dissox_qaqc.R")
-
-station_do_dat<- dissox_qaqc(input_data = converted_percSat, 
-                             select_station = "COOK_WE_40", 
-                             log_root = "data/testing/processed") 
-
-
-# I would like this plotting to have the capabilities of showing multiple wq metrics at a time,
-# as you can see below we only see DO even when there's wl selected as well
-
-plot_qaqc_timeseries(do_data = station_do_dat,
-                     wl_data   = station_wl_qc2,
-                     select_station = "COOK_WE_40")
-
-
-
 
 #  Adjust logger NA -----------------------------------------------------------------------
 
@@ -345,7 +345,47 @@ res_wl <- get_logger_data(
 )
 
 
+
+# DISSOLVED OXYGEN -----------------------------------------------------------------------
+
+# convert do mgl percsat
+
+# double check code to check that that math still makes sense for conversion after some code changes
+# do we really need version input here?
+
+
+source("R/convert_do_mgl_percsat.R")
+
+converted_percSat <- convert_do_mgl_percsat(DO_with_Baro[[1]],
+                                            output_dir = "data/testing/processed",
+                                            version_label = "v0.3")
+
+
+
+
+source("R/dissox_qaqc.R")
+
+station_do_dat<- dissox_qaqc(input_data = converted_percSat, 
+                             select_station = "COOK_WE_40", 
+                             log_root = "data/testing/processed") 
+
+
+# I would like this plotting to have the capabilities of showing multiple wq metrics at a time,
+# as you can see below we only see DO even when there's wl selected as well
+
+plot_qaqc_timeseries(do_data = station_do_dat,
+                     wl_data   = station_wl_qc2,
+                     select_station = "COOK_WE_40")
+
+
+
+
 # CONDUCTIVITY QAQC -----------------------------------------------------------------------------------
+
+
+cond_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/COND", 
+                              path_to_output_folder = "data/testing/processed", 
+                              metadata_path = "data/testing/raw/testing_metadata.csv")
 
 
 source("R/conductivity_qaqc.R")
