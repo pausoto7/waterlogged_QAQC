@@ -30,20 +30,6 @@
 #'   \code{waterlevel_m_adj} values and \code{edit_offset} flag. The input
 #'   columns are preserved; only adjusted values and flags are changed.
 #'
-#' @details
-#' The function:
-#' \itemize{
-#'   \item Filters \code{input_data} to \code{select_station}.
-#'   \item Extracts raw \code{waterlevel_m} at \code{timestamp_start} and
-#'         \code{timestamp_end}.
-#'   \item Computes a constant offset as \code{after\_break - before\_break}.
-#'   \item Subtracts this offset from \code{waterlevel_m_adj} for all
-#'         timestamps \code{>= timestamp_end}.
-#'   \item Sets \code{edit_offset = TRUE} for affected rows.
-#'   \item Writes a QA/QC log entry via \code{make_qaqc_log_row()} and
-#'         \code{qaqc_log_append()}.
-#' }
-#'
 #' @seealso \code{\link{adjust_waterlevel_spike}},
 #'   \code{\link{adjust_logger_NA}},
 #'   \code{\link{make_qaqc_log_row}},

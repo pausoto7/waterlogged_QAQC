@@ -1,29 +1,29 @@
-site_station_code,site_name,site_type,timestamp,stage_m,depth_m,logger_dry,logger_ice,logger_disturbance,site_comments
-WL_ALBR_ST_30,ALBREDA RIVER,ST,7/23/2019 14:30,,0.35,,,,Logger deployed at 14:30
-WL_CEDA_ST_30,CEDAR CREEK,ST,7/25/2019 18:00,,0.43,,,,"Water level and air temp logger deployed, discharge measured on July 24"
-WL_CEDA_ST_30,CEDAR CREEK,ST,8/6/2020 15:22,,,,,,"Barometric logger deployed, discharge measured on July 24 during habitat surveys"
-WL_CEDA_ST_30,CEDAR CREEK,ST,4/27/2021 14:22,,0.3937,,,,U20 downloaded
-WL_ALBR_ST_30,ALBREDA RIVER,ST,4/27/2021 17:00,,,,,,
-WL_ALBR_ST_30,ALBREDA RIVER,ST,11/9/2021 15:09,,,,,,
-WL_CEDA_ST_30,CEDAR CREEK,ST,4/5/2022 12:50,,0.36,,,,
-WL_CEDA_ST_30,CEDAR CREEK,ST,4/7/2022 8:37,0.491,,,,,"Cleared some mud and sticks away from stilling well.   Downloaded loggers with shuttle. U20 cable very rusted, replaced.  Collected nutrients."
-WL_ALBR_ST_30,ALBREDA RIVER,ST,7/22/2022 10:00,0.132,,,,,"Did not install rebar for Q, too much snow.  Bring pruners for willow/deadfall next time.  Pendant battery died, replaced with TidBit 20712042.  Stilling well clear, installed aircraft cable and staff guage.  Finished at 10:00."
-WL_CEDA_ST_30,CEDAR CREEK,ST,8/10/2022 12:00,0.476,,,,,installed aircraft cable and staff guage.  Reinstalled SW with hoseclamps.  Removed pendant (20564869) did not replace.  Downloaded baro U20 and WL U20.  Did not install rebar for Q.  Measured Q ~40m ds of stilling well.
-WL_ALBR_ST_30,ALBREDA RIVER,ST,9/16/2022 12:00,0.176,,,,,"Downloaded loggers at 10:30 with shuttle, files not found on shuttle when downloaded."
-WL_CEDA_ST_30,CEDAR CREEK,ST,9/19/2022 0:00,0.484,,,,,"Stilling well clear, downloaded loggers, U20 in the water at 9:20"
-WL_ALBR_ST_30,ALBREDA RIVER,ST,4/11/2024 13:20,,,,,,"Collected nutrient samples at 10:45, just above bridge. "
-WL_CEDA_ST_30,CEDAR CREEK,ST,4/12/2024 8:40,0.426,,,,,"Collected nutrient samples at 14:30. Downloaded loggrers, good Q measurement.  Small amount of sediment in stilling well, cleared."
-WL_ALBR_ST_30,ALBREDA RIVER,ST,4/18/2024 11:20,0.37,,,,,Measured flow after/during big rain event.  
-WL_CEDA_ST_30,CEDAR CREEK,ST,5/8/2024 10:18,0.535,,,,,
-WL_CEDA_ST_30,CEDAR CREEK,ST,7/23/2024 12:00,,,,,,Downloaded U20 and baro logger
-WL_CEDA_ST_30,CEDAR CREEK,ST,7/24/2024 15:51,0.466,,,,,Downloaded loggers
-WL_ALBR_ST_30,ALBREDA RIVER,ST,7/25/2024 13:00,0.209,,,,,"Downloaded U20 with shuttle during stream walks, stilling well clear"
-WL_ALBR_ST_30,ALBREDA RIVER,ST,9/10/2024 17:15,0.167,,,,,
-WL_CEDA_ST_30,CEDAR CREEK,ST,9/12/2024 13:40,0.338,,,,,
-WL_ALBR_ST_30,ALBREDA RIVER,ST,10/10/2024 9:10,0.316,,,,,
-WL_CEDA_ST_30,CEDAR CREEK,ST,4/18/2025 13:30,0.415,,,,,
-WL_ALBR_ST_30,ALBREDA RIVER,ST,4/19/2025 16:26,0.19,,,,,
-WL_CEDA_ST_30,CEDAR CREEK,ST,6/3/2025 14:58,0.46,,,,,logger good
-WL_ALBR_ST_30,ALBREDA RIVER,ST,7/10/2025 15:05,0.35,,,,,logger looks good
-WL_CEDA_ST_30,CEDAR CREEK,WE,10/21/2025 18:20,0.28,,,,1,"new stage height, stilling well knocked over, reinstalled 60m dowmstream of culvert 60m river right"
-WL_ALBR_ST_30,ALBREDA RIVER,ST,10/22/2025 8:40,0.205,,,,1,"waterlevel logger in sediment, cleared sediment"
+Metric,site_station_code,site_name,site_type,timestamp,stage_m,depth_m,logger_dry,logger_ice,logger_disturbance,site_comments
+WL,ALBR_ST_30,ALBREDA RIVER,ST,7/23/2019 14:30,,0.35,,,,Logger deployed at 14:30
+WL,CEDA_ST_30,CEDAR CREEK,ST,7/25/2019 18:00,,0.43,,,,"Water level and air temp logger deployed, discharge measured on July 24"
+WL,CEDA_ST_30,CEDAR CREEK,ST,8/6/2020 15:22,,,,,,"Barometric logger deployed, discharge measured on July 24 during habitat surveys"
+WL,CEDA_ST_30,CEDAR CREEK,ST,4/27/2021 14:22,,0.3937,,,,U20 downloaded
+WL,ALBR_ST_30,ALBREDA RIVER,ST,4/27/2021 17:00,,,,,,
+WL,ALBR_ST_30,ALBREDA RIVER,ST,11/9/2021 15:09,,,,,,
+WL,CEDA_ST_30,CEDAR CREEK,ST,4/5/2022 12:50,,0.36,,,,
+WL,CEDA_ST_30,CEDAR CREEK,ST,4/7/2022 8:37,0.491,,,,,"Cleared some mud and sticks away from stilling well.   Downloaded loggers with shuttle. U20 cable very rusted, replaced.  Collected nutrients."
+WL,ALBR_ST_30,ALBREDA RIVER,ST,7/22/2022 10:00,0.132,,,,,"Did not install rebar for Q, too much snow.  Bring pruners for willow/deadfall next time.  Pendant battery died, replaced with TidBit 20712042.  Stilling well clear, installed aircraft cable and staff guage.  Finished at 10:00."
+WL,CEDA_ST_30,CEDAR CREEK,ST,8/10/2022 12:00,0.476,,,,,installed aircraft cable and staff guage.  Reinstalled SW with hoseclamps.  Removed pendant (20564869) did not replace.  Downloaded baro U20 and WL U20.  Did not install rebar for Q.  Measured Q ~40m ds of stilling well.
+WL,ALBR_ST_30,ALBREDA RIVER,ST,9/16/2022 12:00,0.176,,,,,"Downloaded loggers at 10:30 with shuttle, files not found on shuttle when downloaded."
+WL,CEDA_ST_30,CEDAR CREEK,ST,9/19/2022 0:00,0.484,,,,,"Stilling well clear, downloaded loggers, U20 in the water at 9:20"
+WL,ALBR_ST_30,ALBREDA RIVER,ST,4/11/2024 13:20,,,,,,"Collected nutrient samples at 10:45, just above bridge. "
+WL,CEDA_ST_30,CEDAR CREEK,ST,4/12/2024 8:40,0.426,,,,,"Collected nutrient samples at 14:30. Downloaded loggrers, good Q measurement.  Small amount of sediment in stilling well, cleared."
+WL,ALBR_ST_30,ALBREDA RIVER,ST,4/18/2024 11:20,0.37,,,,,Measured flow after/during big rain event.  
+WL,CEDA_ST_30,CEDAR CREEK,ST,5/8/2024 10:18,0.535,,,,,
+WL,CEDA_ST_30,CEDAR CREEK,ST,7/23/2024 12:00,,,,,,Downloaded U20 and baro logger
+WL,CEDA_ST_30,CEDAR CREEK,ST,7/24/2024 15:51,0.466,,,,,Downloaded loggers
+WL,ALBR_ST_30,ALBREDA RIVER,ST,7/25/2024 13:00,0.209,,,,,"Downloaded U20 with shuttle during stream walks, stilling well clear"
+WL,ALBR_ST_30,ALBREDA RIVER,ST,9/10/2024 17:15,0.167,,,,,
+WL,CEDA_ST_30,CEDAR CREEK,ST,9/12/2024 13:40,0.338,,,,,
+WL,ALBR_ST_30,ALBREDA RIVER,ST,10/10/2024 9:10,0.316,,,,,
+WL,CEDA_ST_30,CEDAR CREEK,ST,4/18/2025 13:30,0.415,,,,,
+WL,ALBR_ST_30,ALBREDA RIVER,ST,4/19/2025 16:26,0.19,,,,,
+WL,CEDA_ST_30,CEDAR CREEK,ST,6/3/2025 14:58,0.46,,,,,logger good
+WL,ALBR_ST_30,ALBREDA RIVER,ST,7/10/2025 15:05,0.35,,,,,logger looks good
+WL,CEDA_ST_30,CEDAR CREEK,WE,10/21/2025 18:20,0.28,,,,1,"new stage height, stilling well knocked over, reinstalled 60m dowmstream of culvert 60m river right"
+WL,ALBR_ST_30,ALBREDA RIVER,ST,10/22/2025 8:40,0.205,,,,1,"waterlevel logger in sediment, cleared sediment"

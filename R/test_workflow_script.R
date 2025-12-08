@@ -8,12 +8,10 @@
 
 # misc
 
-  # what to do with temp qaqc script - should we incorporate it into bind_hobo_files?
+  # timestamp check for joining later on
   # a universal function could probably be created for writing csv names
-  # once initial overall qaqc is done, I think there is value to creating new file names to
-  # make it easier to follow what function is for what and what order they're typically completed in
   # WANT TO MAKE A DRIFT FUNCTION for WL and also other params! #######
-  # Add field data functionality
+  # Add field data functionality + correst stage from field
   # Would be nice to have a function to compare visually between stations - probably similar code to plot_qaqc_timeseries but would be same metric diff stations
   # versioning needs to change I think- the current versions don't really make sense and can add confusion if intermediate qaqc steps are done in a diff order
   # should we add the ability to remove flags/edits? Would need to be removed in both the log and associated col
@@ -32,8 +30,9 @@
 
 
 
+# add to vingette - hobo export
 
-
+library(tidyverse) # for use while this is still not in package format
 
 # STEP 1 - GRAB ALL CSV FILES AND PUT INTO SINGLE OBJECT FOR EACH METRIC -----------------------------------------------
   # PRELIM QAQC
@@ -69,6 +68,7 @@ cond_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/COND",
 
   # this qaqc function + plotting could use some more robustness testing in terms of weird inputs 
 
+source("R/barometric_qaqc.R")
 source("R/baro_qaqc_all.R")
 
 
@@ -85,14 +85,15 @@ all_checked_baro_data <- barometric_qaqc_all(
   flatline_n           = 6
 )
 
-
 source("R/plot_qaqc_timeseries.R")
+source("R/plot_qaqc_timeseries.R")
+source("R/utils_plotting.R")
 
 plot_qaqc_timeseries(
   wl_data   = NULL,
   do_data   = NULL,
   baro_data = all_checked_baro_data,   # from barometric_qaqc(), optional
-  select_station = "BARO_DARL_ST_30"
+  select_station = "DARL_ST_30"
 )
 
 
@@ -106,11 +107,13 @@ plot_qaqc_timeseries(
      # e.g. if diff baro is used, there should be a col that says what the correction is compared to first baro used
   # "baro_site_selection" non auto options could benefit from more testing. 
      # to run the non-auto functionality enter a specific baro station name.
-  # double check that this is using "qaqc'd barometric data
+  # double check that this is using "qaqc'd barometric data (aka **_adj df's; not the raw stuff)
 
 source("R/add_nearest_baro_helpers.R")
 source("R/add_nearest_baro.R") # add nearest baro -> output v0.2
 
+#TO DO: 
+# can add baro logger to cond data to get air temp - talk to Julien
 input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
                                   path_to_output_folder = "data/testing/processed", 
                                   baro_data_path = "data/testing/processed",
@@ -130,6 +133,8 @@ DO_with_Baro <- add_nearest_baro(input_data = DO_bound[[1]],
 # STEP 3 - CONVERT WATERLEVEL FROM PRESSURE TO m's --------------------------------------------------------------------------------
 
 # To make more robust - in the future could make it so select_station accepts a list of stations
+# I'm not sure what the value is for returning the reference data..
+# double check workflow happening here 
 
 source("R/convert_wl_kpa_m.R") # convert_waterlevel_kPa_m -> output v0.3
 
@@ -142,13 +147,11 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
                                            path_to_output_folder= "data/testing/processed") 
 
 
-
 # convert do mgl percsat -----------------------------------------------------------------
 
 # double check code to check that that math still makes sense for conversion after some code changes
 # do we really need version input here?
 
-# COMPLETE
 
 source("R/convert_do_mgl_percsat.R")
 
@@ -162,27 +165,35 @@ converted_percSat <- convert_do_mgl_percsat(DO_with_Baro[[1]],
 
 # waterlevel_qaqc -----------------------------------------------------------------------
 
-# improve plotting -> right now when you zoom in there's few or none x axis labels. Would be beneficial to add more for better understanding of scale. 
-#                  -> Could also benefit from at least the zero line being shown 
-# Currently the log file is logging every single flag that's just automated... not sure if we should keep this or just keep actual changes..
-# would be nice to add a proper warning about if you can't open file xx: Permission denied when you have the file open; would be a helpul addition for non coders. Same for the following logger functions
 
 
 source("R/waterlevel_qaqc.R")
+source("R/qaqc_log_helpers.R")
 
 # FYI - This code has now been split into two functions 1) waterlevel_complete_QAQC   2) waterlevel_qaqc_plot
 waterlevel_complete_QAQC <- waterlevel_qaqc(converted_data[[1]],
                                             log_root = "data/testing/processed", 
-                                            select_station = "WL_ALBR_ST_30") 
+                                            select_station = "ALBR_ST_30") 
 
 waterlevel_complete_QAQC
 
+
+
+# improve plotting -> right now when you zoom in there's few or none x axis labels. Would be beneficial to add more for better understanding of scale. 
+#                  -> Could also benefit from at least the zero line being shown 
+# Currently the log file is logging every single flag that's just automated... not sure if we should keep this or just keep actual changes..
+# would be nice to add a proper warning about if you can't open file xx: Permission denied when you have the file open; would be a helpul addition for non coders. Same for the following logger functions
+# Add field data to qaqc plots!! 
+
+source("R/utils_plotting.R")
+source("R/plot_qaqc_timeseries_helpers.R")
+source("R/plot_qaqc_timeseries.R")
 
 plot_qaqc_timeseries(
   wl_data   = waterlevel_complete_QAQC,
   do_data   = NULL,
   baro_data = NULL,   # from barometric_qaqc(), optional
-  select_station = "WL_ALBR_ST_30"
+  select_station = "ALBR_ST_30"
 )
 
 
@@ -195,7 +206,7 @@ plot_qaqc_timeseries(
 source("R/adjust_waterlevel_spike.R")
 
 station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC, 
-                                           select_station = "WL_ALBR_ST_30",
+                                           select_station = "ALBR_ST_30",
                                            timestamp_start = "2025-02-11 21:00:00",
                                            timestamp_end = "2025-02-20 16:00:00", 
                                            reason_to_adjust = "ice", 
@@ -205,18 +216,13 @@ station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC,
 
 # plot hydro -----------------------------------------------------------------------------------
 
-# Add field data to qaqc plots!! 
-
-
 
 plot_qaqc_timeseries(
   wl_data   = station_wl_qc,
   do_data   = NULL,
-  baro_data = NULL,   # from barometric_qaqc(), optional
-  select_station = "WL_ALBR_ST_30"
+  baro_data = NULL,   
+  select_station = "ALBR_ST_30"
 )
-
-
 
 
 # adjust water level offset --------------------------------------------------------------
@@ -228,24 +234,22 @@ plot_qaqc_timeseries(
 source("R/adjust_wl_offset.R")
 
 station_wl_qc2 <- adjust_WL_offset(input_data = station_wl_qc,
-                                 select_station = "WL_ALBR_ST_30",
+                                 select_station = "ALBR_ST_30",
                                  timestamp_start = "2025-02-04 07:00:00",
                                  timestamp_end = "2025-02-09 00:00:00" ,
                                  manual_note = "Suspected storm moved logger",
                                  log_root = "data/testing/processed",
                                  user = Sys.info()[["user"]])
 
-# -------------------------------------------------------------------------------
-  # would like to look into playing arounx with x axis changing with amount of zoom in? 
+# plot -------------------------------------------------------------------------------
+  # would like to look into playing around with x axis changing with amount of zoom in? 
     # Currently if you zoom in too far the date fully disappears
-
-# plot
 
 plot_qaqc_timeseries(
   wl_data   = station_wl_qc2,
   do_data   = NULL,
   baro_data = NULL,   # from barometric_qaqc(), optional
-  select_station = "WL_ALBR_ST_30"
+  select_station = "ALBR_ST_30"
 )
 
 
@@ -255,18 +259,17 @@ plot_qaqc_timeseries(
 
 source("R/dissox_qaqc.R")
 
-      # NEEED TO ADD LOG FUNCTIONALITY
 station_do_dat<- dissox_qaqc(input_data = converted_percSat, 
-                             select_station = "DO_COOK_WE_40", 
+                             select_station = "COOK_WE_40", 
                              log_root = "data/testing/processed") 
 
-source("R/utils_plotting.R")
-source("R/plot_qaqc_timeseries_helpers.R")
-source("R/plot_qaqc_timeseries.R")
+
+# I would like this plotting to have the capabilities of showing multiple wq metrics at a time,
+# as you can see below we only see DO even when there's wl selected as well
 
 plot_qaqc_timeseries(do_data = station_do_dat,
-                     wl_data = NULL, 
-                     select_station = "DO_COOK_WE_40")
+                     wl_data   = station_wl_qc2,
+                     select_station = "COOK_WE_40")
 
 
 
@@ -276,31 +279,28 @@ plot_qaqc_timeseries(do_data = station_do_dat,
 source("R/adjust_logger_NA.R")
 
 adjusted_WL_NA <- adjust_logger_NA( station_wl_qc2,
-    select_station = "WL_ALBR_ST_30",
+    select_station = "ALBR_ST_30",
     metric = "waterlevel",              
     reason_to_adjust = "ice", 
     timestamp_start = "2025-06-04 07:00:00",
     timestamp_end = "2025-06-09 00:00:00" ,  
     keep_temp         = FALSE,
     apply_to_all_data = FALSE,
-    manual_note = "Ice present - could see in field pics",         # required free-text explanation
-    log_root = "data/testing/processed",            # root folder where /logs lives
+    manual_note = "Ice present - could see in field pics",         # required  explanation
+    log_root = "data/testing/processed",            
 ) 
   
-waterlevel_qaqc_plot(qaqc_data = adjusted_WL_NA,
-                     select_station = "WL_ALBR_ST_30")
-
 
 
 # adjust waterlevel zero ---------------------------------------------------------------------
 
-
+source("R/adjust_wl_zero.R")
 
 # testing when change value is manually input
 
 wl_zero <- adjust_WL_zero(
   input_data      = station_wl_qc,
-  select_station  = "WL_ALBR_ST_30",
+  select_station  = "ALBR_ST_30",
   change_value    = 0.05,
   manual_note     = "Datum shifted +0.05 m to match survey benchmark",
   log_root        = "data/testing/processed"
@@ -310,15 +310,13 @@ wl_zero <- adjust_WL_zero(
 # testing "auto" change value - unsure about the science behind this. 
 wl_zero <- adjust_WL_zero(
   input_data      = station_wl_qc,
-  select_station  = "WL_ALBR_ST_30",
+  select_station  = "ALBR_ST_30",
   change_value    = NULL,
   timestamp_start = "2025-02-10 00:00:00",
   timestamp_end   = "2025-02-12 00:00:00",
   manual_note     = "Zero set using observed dry period",
   log_root        = "data/testing/processed"
 )
-
-
 
 
 
@@ -332,12 +330,10 @@ clean_WL <- write_clean_data(
     metric = "waterlevel"
 ) 
 
-
 # get logger data ----------------------------------------------------------------------
 
   # This function does different stuff depending on what version of data the user is on 
-    # - I wonder if it could benefit from being split up? What purpose does this serve?
-
+    # - I wonder if it could benefit from being split up? What purpose does this serve? - see original code in 'waterlogged' for uses
 
 source("R/get_logger_data.R")
 
@@ -351,12 +347,10 @@ res_wl <- get_logger_data(
 
 # CONDUCTIVITY QAQC -----------------------------------------------------------------------------------
 
-# getting warnings###############
 
 source("R/conductivity_qaqc.R")
 source("R/conductivity_qaqc_all.R")
 
-# Run conductivity QAQC for all conductivity stations in metadata ----------
 all_checked_cond_data <- conductivity_qaqc_all(
   cond_data_path            = "data/testing/processed",
   metadata_path             = "data/testing/raw/testing_metadata.csv",
@@ -369,8 +363,18 @@ all_checked_cond_data <- conductivity_qaqc_all(
   air_water_diff_threshold_C = 2
 )
 
-# ADD DRIFT CORRECTION
 
+reference_data <- QAQC_reference_data(reference_data)
+
+# ADD DRIFT CORRECTION - 
+source("R/drift_conductivity.R") # missing reference data with these cols: ysi_timestamp, ysi_conduct_uScm, ysi_watertemp_C
+                                 # to be able to QAQC this function
+
+drif_corrected <- correct_drift(
+  input_data  = all_checked_cond_data,
+  ref_data = reference_data,
+  select_station = "TUMT_WE_40"
+)
 
 
 plot_qaqc_timeseries(cond_data = all_checked_cond_data,
@@ -379,3 +383,7 @@ plot_qaqc_timeseries(cond_data = all_checked_cond_data,
 source("R/conductivity_temp_compensation.R")
 
 compensated_cond <- conductivity_temp_compensation(all_checked_cond_data)
+
+
+
+

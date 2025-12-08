@@ -6,11 +6,6 @@
 #' for a given station and metric. Typical use cases are removing periods
 #' affected by ice, dry conditions, or logger disturbances after visual QA/QC.
 #'
-#' The function updates the appropriate \code{*_adj} columns
-#' (e.g. \code{waterlevel_m_adj}, \code{do_mgl_adj}, \code{do_percsat_adj},
-#' \code{watertemp_C_adj}, \code{airpress_kPa_adj},
-#' \code{conductivity_uScm_adj}) and writes an entry to the QA/QC log via
-#' \code{make_qaqc_log_row()} and \code{qaqc_log_append()}.
 #'
 #' @param input_data Data frame containing logger data for one or more stations,
 #'   including a \code{timestamp} column, \code{site_station_code}, and the

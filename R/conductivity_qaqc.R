@@ -96,10 +96,10 @@ conductivity_qaqc <- function(
     ) %>%
     # Drop purely helper columns we don't need to expose
     dplyr::select(
-      -dplyr::all_of(c("air_water_close")) %>% 
-        intersect(names(.)),  # safe if column didn't exist
-      -dplyr::all_of(c("diff_cond"))      %>% 
-        intersect(names(.))
+      -dplyr::any_of(c(
+        "air_water_close",
+        "diff_cond"
+      ))
     )
   
   # ---- 5. Build QA/QC log rows (COND-style rules list) ----------------------
