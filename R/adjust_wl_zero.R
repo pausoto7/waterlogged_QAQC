@@ -50,9 +50,8 @@
 #'   [adjust_logger_NA()], [make_qaqc_log_row()], [qaqc_log_path()],
 #'   [qaqc_log_append()]
 #'
-#' @import dplyr
+#' @importFrom dplyr filter mutate
 #' @importFrom lubridate ymd_hms
-#'
 #' @export
 adjust_WL_zero <- function(input_data,
                            select_station,

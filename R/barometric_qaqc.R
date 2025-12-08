@@ -16,10 +16,10 @@
 #'   workflow (e.g. `"data/testing/processed"`).
 #' @param user Character username written into the QA/QC log. Defaults to
 #'   `Sys.info()[["user"]]`.
-#' @param temp_low_limit Lower bound (°C) for plausible barometric temperatures.
+#' @param temp_low_limit Lower bound (\u00B0C) for plausible barometric temperatures.
 #'   Values outside `[temp_low_limit, temp_high_limit]` are set to `NA` in
 #'   `airtemp_C_adj` and flagged.
-#' @param temp_high_limit Upper bound (°C) for plausible barometric temperatures.
+#' @param temp_high_limit Upper bound (\u00B0C) for plausible barometric temperatures.
 #' @param pressure_low_kpa Lower bound (kPa) for plausible barometric pressure.
 #'   Values below this are set to `NA` in `airpress_kPa_adj` and flagged.
 #' @param pressure_high_kpa Upper bound (kPa) for plausible barometric pressure.
@@ -46,7 +46,7 @@
 #'
 #' @seealso [barometric_qaqc_all()], [add_nearest_baro()]
 #'
-#' @import dplyr
+#' @importFrom dplyr filter arrange mutate if_else
 #' @export
 barometric_qaqc <- function(input_data,
                             select_station,
@@ -124,7 +124,7 @@ barometric_qaqc <- function(input_data,
     list(name="PRESSURE_LOW", idx=which(bad_press_low),
          note=paste0("Pressure below ", pressure_low_kpa, " kPa removed")),
     list(name="TEMP_OUT_RANGE", idx=which(bad_temp),
-         note=paste0("Temperature outside [", temp_low_limit,", ", temp_high_limit, "] °C")),
+         note=paste0("Temperature outside [", temp_low_limit,", ", temp_high_limit, "] \u00B0C")),
     list(name="SPIKE", idx=which(spikes),
          note=paste0("Spike > ", spike_threshold_kpa, " kPa detected")),
     list(name="FLATLINE", idx=which(flatline),

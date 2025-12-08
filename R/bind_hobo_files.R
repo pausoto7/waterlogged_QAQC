@@ -48,8 +48,9 @@
 #'
 #' @seealso [QAQC_metadata()], [extract_alldata_from_file()]
 #'
-#' @import ggplot2
-#' @import dplyr
+#' @importFrom ggplot2 ggplot aes geom_line facet_wrap theme_classic theme element_text scale_x_datetime labs
+#' @importFrom dplyr filter mutate select across distinct case_when matches
+#' @importFrom tidyr drop_na
 #' @importFrom purrr map_df
 #' @importFrom lubridate mdy_hms now year date
 #' @export
@@ -103,24 +104,24 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   hobo_data_raw$timestamp <- lubridate::mdy_hms(hobo_data_raw$timestamp)
   
   if(any(is.na(hobo_data_raw$timestamp))) {
-    missing_ts <- hobo_data_raw %>% filter(is.na(timestamp))
+    missing_ts <- hobo_data_raw %>% dplyr::filter(is.na(timestamp))
     missing_ts_sn <- unique(missing_ts$sn)
-    
+
     warning(paste("NAs produced in timestamp for logger SN:",missing_ts_sn,". Make sure the timestamp column in csv is formatted as mm/dd/yy HH:MM:SS AM/PM (%m/%d/%y %I:%M:%S %p). Correct and try again."))
   }
-  
-  
+
+
   if(any(is.na(metadata$timestamp_deploy))) {
-    missing_ts <- metadata %>% 
+    missing_ts <- metadata %>%
       dplyr::filter(is.na(timestamp_deploy))
-    
+
     missing_ts_sn <- unique(missing_ts$sn)
-    
+
     warning(paste("NAs produced in timestamp_deploy for logger SN:",missing_ts_sn,". Make sure the timestamp column in csv is formatted the same as the input data and is noted correctly in timestamp_format. Correct and try again."))
   }
-  
+
   # link sn to site_station_code in metadata
-  metadat_link <- metadata %>% filter(sn %in% unique(hobo_data_raw$sn))
+  metadat_link <- metadata %>% dplyr::filter(sn %in% unique(hobo_data_raw$sn))
   
   measurement_type <- unique(metadat_link$metric)
   
@@ -140,10 +141,10 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   for(serial_num in 1:length(uniq_sn_list)){
     logger_i <- uniq_sn_list[serial_num]
-    data_i <- hobo_data_raw %>% filter(sn ==logger_i)
-    
+    data_i <- hobo_data_raw %>% dplyr::filter(sn ==logger_i)
+
     # get site codes for each sn
-    metadat_i <- metadat_link %>% filter(sn==logger_i)
+    metadat_i <- metadat_link %>% dplyr::filter(sn==logger_i)
     
     # if no metadat for that logger produce error message
     if(length(metadat_i$sn)==0){
@@ -162,9 +163,9 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
       data_i$site_station_code[data_i$timestamp >= deploy_j & data_i$timestamp <= remove_j] <- site_j
       
     } # end of j loop
-    
+
     # trim data to within install/removal at each site
-    data_i <- data_i %>% drop_na(site_station_code)
+    data_i <- data_i %>% tidyr::drop_na(site_station_code)
     sites_compiled <- rbind(sites_compiled, data_i)
     
   } # end of i loop
@@ -193,14 +194,15 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   logger_type <- logger_type[[1]] 
   
-  
-  # mutate a column for logger type and metric  
+
+  # mutate a column for logger type and metric
   sites_compiled <- sites_compiled %>%
-    mutate(logger_type = logger_type, 
+    dplyr::mutate(logger_type = logger_type,
            metric = measurement_type)
   
-  
-  # setting this sa default. That way if logger_header is not assigned in anything below we can create an error.
+
+
+  # setting this as default. That way if logger_header is not assigned in anything below we can create an error.
   logger_header <- NA_character_ 
   
 
@@ -211,10 +213,10 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     
     # Temp handling
     if (ncol(sites_compiled) >= 4) {
-      if (colnames(sites_compiled)[4] == "Temp °C") {
+      if (colnames(sites_compiled)[4] == "Temp \u00B0C") {
         colnames(sites_compiled)[4] <- "watertemp_C"
       }
-      if (colnames(sites_compiled)[4] == "Temp °F") {
+      if (colnames(sites_compiled)[4] == "Temp \u00B0F") {
         sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
         colnames(sites_compiled)[4] <- "watertemp_C"
       }
@@ -228,10 +230,10 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     logger_header <- "BARO"
     
     if (ncol(sites_compiled) >= 4) {
-      if (colnames(sites_compiled)[4] == "Temp °C") {
+      if (colnames(sites_compiled)[4] == "Temp \u00B0C") {
         colnames(sites_compiled)[4] <- "airtemp_C"
       }
-      if (colnames(sites_compiled)[4] == "Temp °F") {
+      if (colnames(sites_compiled)[4] == "Temp \u00B0F") {
         sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
         colnames(sites_compiled)[4] <- "airtemp_C"
       }
@@ -244,10 +246,10 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     logger_header <- "WL"
     
     if (ncol(sites_compiled) >= 4) {
-      if (colnames(sites_compiled)[4] == "Temp °C") {
+      if (colnames(sites_compiled)[4] == "Temp \u00B0C") {
         colnames(sites_compiled)[4] <- "watertemp_C"
       }
-      if (colnames(sites_compiled)[4] == "Temp °F") {
+      if (colnames(sites_compiled)[4] == "Temp \u00B0F") {
         sites_compiled[[4]] <- convert_F_to_C(sites_compiled[[4]])
         colnames(sites_compiled)[4] <- "watertemp_C"
       }
@@ -255,24 +257,24 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   }
   
   # TIDBIT WATER TEMP LOGGER -------------------------------------------
-  if (colnames(sites_compiled)[3] == "Temp °C" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp \u00B0C" & logger_type == "tidbit") {
     logger_header <- "WT"
     colnames(sites_compiled)[3] <- "watertemp_C"
   }
   
-  if (colnames(sites_compiled)[3] == "Temp °F" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp \u00B0F" & logger_type == "tidbit") {
     logger_header <- "WT"
     sites_compiled[[3]] <- convert_F_to_C(sites_compiled[[3]])
     colnames(sites_compiled)[3] <- "watertemp_C"
   }
   
   # TIDBIT AIR TEMP LOGGER ---------------------------------------------
-  if (colnames(sites_compiled)[3] == "Temp °C" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp \u00B0C" & logger_type == "tidbit") {
     logger_header <- "AT"
     colnames(sites_compiled)[3] <- "airtemp_C"
   }
   
-  if (colnames(sites_compiled)[3] == "Temp °F" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp \u00B0F" & logger_type == "tidbit") {
     logger_header <- "AT"
     sites_compiled[[3]] <- convert_F_to_C(sites_compiled[[3]])
     colnames(sites_compiled)[3] <- "airtemp_C"
@@ -280,9 +282,6 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   # CONDUCTIVITY LOGGER U24 ---------------------------------------------
   # Only run this block if the folder metric is conductivity
-  
-  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
-  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
   if (measurement_type == "conductivity") {
     
     nm <- names(sites_compiled)
@@ -293,13 +292,13 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     full_col <- nm[grepl("Full Range", nm, ignore.case = TRUE) &
                      grepl("S/cm",       nm, ignore.case = TRUE)]
     
-    # Temp column: "Temp °C" or "Temp, °C", any variant with C
+    # Temp column: "Temp \u00B0C" or "Temp, \u00B0C", any variant with C
     temp_col <- nm[grepl("^Temp", nm, ignore.case = TRUE) &
                      grepl("C",     nm, ignore.case = TRUE)]
     
     if (length(low_col)  > 1L) stop("Multiple 'Low Range' columns found.")
     if (length(full_col) > 1L) stop("Multiple 'Full Range' columns found.")
-    if (length(temp_col) > 1L) stop("Multiple temperature (°C) columns found.")
+    if (length(temp_col) > 1L) stop("Multiple temperature (\u00B0C) columns found.")
     
     low_col  <- if (length(low_col))  low_col[[1]]  else NA_character_
     full_col <- if (length(full_col)) full_col[[1]] else NA_character_
@@ -338,7 +337,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     sites_compiled$data1_type <- "conductivity"
     sites_compiled$data1_unit <- "µS/cm"
     sites_compiled$data2_type <- "Temp"
-    sites_compiled$dat2_unit  <- "°C"
+    sites_compiled$dat2_unit  <- "\u00B0C"
   }
   
   
@@ -358,9 +357,9 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   # this loop will split data by type, location and year for ease of access and processing
   
   for(i in 1:length(unique(sites_compiled$site_station_code))) {
-    
+
     site_i <- unique(sites_compiled$site_station_code)[i]
-    site_dat <- sites_compiled %>% filter(site_station_code==site_i)
+    site_dat <- sites_compiled %>% dplyr::filter(site_station_code==site_i)
     
     # split by year
     years_i <- unique(lubridate::year(site_dat$timestamp))
@@ -413,17 +412,17 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   # Grab the names explicitly instead of relying on position
   time_col  <- names(sites_compiled)[2]
   value_col <- names(sites_compiled)[3]
-  
-  multi_plots <- ggplot(
+
+  multi_plots <- ggplot2::ggplot(
     data = sites_compiled,
-    aes(x = .data[[time_col]], y = .data[[value_col]])
+    ggplot2::aes(x = .data[[time_col]], y = .data[[value_col]])
   ) +
-    geom_line(linewidth = 1) +
-    facet_wrap(~ site_station_code, scales = "free") +
-    theme_classic() +
-    theme(axis.text.x = element_text(angle = 90)) +
-    scale_x_datetime(date_labels = "%y-%m") +
-    labs(
+    ggplot2::geom_line(linewidth = 1) +
+    ggplot2::facet_wrap(~ site_station_code, scales = "free") +
+    ggplot2::theme_classic() +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90)) +
+    ggplot2::scale_x_datetime(date_labels = "%y-%m") +
+    ggplot2::labs(
       x = "Timestamp (YY-MM)",
       y = value_col
     )

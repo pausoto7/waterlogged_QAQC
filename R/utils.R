@@ -7,13 +7,25 @@
 #'
 #' @param x A character vector.
 #'
+#' @return A character vector of the same length as \code{x}, normalized for
+#'   case and spacing.
+#'
+#' @keywords internal
+normalize_string <- function(x) {
+  x <- tolower(x)
+  x <- trimws(x)
+  x <- gsub("\\s+", "", x)   # remove internal spaces
+  x
+}
+
+
 #' Convert Fahrenheit to Celsius
 #'
-#' Converts a numeric vector of temperatures from degrees Fahrenheit (°F)
-#' to degrees Celsius (°C) using the standard linear transformation.
+#' Converts a numeric vector of temperatures from degrees Fahrenheit (\u00B0F)
+#' to degrees Celsius (\u00B0C) using the standard linear transformation.
 #'
 #' This is an internal helper used when parsing HOBO logger files that
-#' report temperature in °F.
+#' report temperature in \u00B0F.
 #'
 #' @param x Numeric vector of temperatures in degrees Fahrenheit.
 #'
@@ -28,22 +40,14 @@ convert_F_to_C <- function(x) (x - 32) * (5/9)
 
 
 #' Escape regex special characters
+#'
+#' @param x A character string to escape.
+#'
+#' @return A character string with regex special characters escaped.
+#'
 #' @keywords internal
 escape_regex <- function(x) {
   gsub("([][{}()+*^$|\\.?\\\\-])", "\\\\\\1", x)
-}
-
-
-
-#' @return A character vector of the same length as \code{x}, normalized for
-#'   case and spacing.
-#'
-#' @keywords internal
-normalize_string <- function(x) {
-  x <- tolower(x)
-  x <- trimws(x)
-  x <- gsub("\\s+", "", x)   # remove internal spaces
-  x
 }
 
 

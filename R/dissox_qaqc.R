@@ -1,3 +1,55 @@
+#' Automatic QA/QC for dissolved oxygen data
+#'
+#' Applies automated quality assurance and quality control rules to dissolved
+#' oxygen (DO) time series data. Detects and removes or corrects logger errors,
+#' invalid DO concentrations, negative values, ice conditions, and dry sensor
+#' periods. All QA/QC actions are logged for traceability.
+#'
+#' @param input_data Data frame containing dissolved oxygen logger data with
+#'   columns: `site_station_code`, `timestamp`, `do_mgl`, `do_percsat`,
+#'   `watertemp_C`, and `airtemp_C`. Typically the output from
+#'   [convert_do_mgl_percsat()].
+#' @param select_station Character; the station code to process (must match
+#'   a value in `site_station_code` column).
+#' @param log_root Character; root directory where QA/QC logs will be written.
+#'   Log files are created at `<log_root>/logs/<station>_<metric>_QAQC_log.csv`.
+#' @param user Character; username to record in the QA/QC log. Defaults to
+#'   `Sys.info()[["user"]]`.
+#'
+#' @details
+#' The function applies the following QA/QC rules:
+#'
+#' **Dissolved Oxygen Rules:**
+#' \itemize{
+#'   \item Logger error codes (-888.88) are removed (set to NA)
+#'   \item DO values < -1 mg/L are removed (set to NA)
+#'   \item DO values between -1 and 0 mg/L are corrected to 0
+#'   \item DO values > 21 mg/L are removed as outliers
+#'   \item 12-point dry sensor detection: flags periods where DO percent
+#'     saturation >= 100% and air-water temperature difference <= 2\u00B0C for
+#'     12 or more consecutive readings
+#' }
+#'
+#' **Water Temperature Rules (DO logger):**
+#' \itemize{
+#'   \item Temperatures <= -1\u00B0C are set to NA (invalid readings)
+#'   \item Temperatures between -1\u00B0C and 0\u00B0C are corrected to 0\u00B0C
+#'   \item Temperatures < 0.3\u00B0C are flagged as potential ice conditions
+#' }
+#'
+#' Creates adjusted columns `do_mgl_adj`, `do_percsat_adj`, and
+#' `watertemp_C_do_adj` along with flag columns including `flag_do_dry`,
+#' `temp_flag_ice`, and various error flags.
+#'
+#' @return A data frame containing the input data for `select_station` with
+#'   additional adjusted columns (`*_adj`) and flag columns. Rows are sorted
+#'   by timestamp. QA/QC log entries are written to disk as a side effect.
+#'
+#' @seealso [convert_do_mgl_percsat()], [qaqc_log_append()], [plot_qaqc_timeseries()]
+#'
+#' @importFrom dplyr filter arrange mutate case_when bind_rows tibble
+#' @importFrom lubridate ymd_hms
+#' @export
 dissox_qaqc <- function(input_data,
                         select_station,
                         log_root,
@@ -157,26 +209,26 @@ dissox_qaqc <- function(input_data,
       flag        = output_data$temp_neg_between %in% TRUE,
       field       = "watertemp_C_do_adj",
       code        = "NEGATIVE_TEMP",
-      action_note = "DO water temp between 0 and -1 °C corrected to 0 °C."
+      action_note = "DO water temp between 0 and -1 \u00B0C corrected to 0 \u00B0C."
     ),
     list(
       flag        = output_data$temp_neg_leq_minus1 %in% TRUE,
       field       = "watertemp_C_do_adj",
       code        = "LOGGER_ICE",
-      action_note = "DO water temp ≤ -1 °C removed (set to NA)."
+      action_note = "DO water temp ≤ -1 \u00B0C removed (set to NA)."
     ),
     list(
       flag        = output_data$temp_flag_ice %in% TRUE,
       field       = "watertemp_C_do_adj",
       code        = "FLAG_ICE",
-      action_note = "Possible ice conditions: DO water temp < 0.3 °C; flagged for review."
+      action_note = "Possible ice conditions: DO water temp < 0.3 \u00B0C; flagged for review."
     ),
     # dry periods (12-point rule) – DO-specific
     list(
       flag        = output_data$flag_do_dry %in% TRUE,
       field       = "do_mgl_adj",
       code        = "FLAG_DO_DRY",
-      action_note = "Possible dry sensor: DO %sat ≥ 100 and air–water temps within 2 °C for ≥ 12 points."
+      action_note = "Possible dry sensor: DO %sat ≥ 100 and air–water temps within 2 \u00B0C for ≥ 12 points."
     )
   )
   

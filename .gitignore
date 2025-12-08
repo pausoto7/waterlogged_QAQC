@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+.claude
 data/testing/processed/*
 data/deadwood/processed/*
 data/deadwood/raw/baro/*

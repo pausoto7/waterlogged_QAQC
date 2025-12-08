@@ -1,28 +1,54 @@
-#Bind_hobo_utils
-
-# READ METADATA FILE, CONVERT datetime to correct format, check that removal is after deployment
+#' Quality check and format logger metadata file
+#'
+#' Reads a logger deployment metadata CSV file, validates required columns,
+#' parses timestamps, checks for logical errors (e.g., deployment after removal),
+#' and validates latitude/longitude coordinates. This is an internal helper
+#' function used by [bind_hobo_files()] and other data ingestion functions.
+#'
+#' @param metadata_path Character; file path to the metadata CSV file. Must
+#'   contain columns: `site_station_code`, `timestamp_deploy`, `timestamp_remove`,
+#'   `model`, `sn`, `metric`, `status`, `latitude`, and `longitude`.
+#'
+#' @return A data frame with validated and formatted metadata. Timestamps are
+#'   converted to POSIXct (UTC), serial numbers are character, and lat/lon are
+#'   numeric decimal degrees.
+#'
+#' @details
+#' The function performs the following validations:
+#' \itemize{
+#'   \item Checks for file existence
+#'   \item Validates presence of required columns
+#'   \item Parses timestamps (expects `mdy_hm` format, e.g., "4/30/2025 13:45")
+#'   \item Checks that deployment time is before removal time
+#'   \item Validates latitude (-90 to 90) and longitude (-180 to 180) ranges
+#'   \item Warns if coordinates appear to be in DMS format instead of decimal degrees
+#'   \item Removes completely empty rows
+#' }
+#'
+#' @importFrom lubridate mdy_hm parse_date_time
+#' @keywords internal
 QAQC_metadata <- function(metadata_path) {
   tryCatch({
     # 1) File check
     if (!file.exists(metadata_path)) {
       stop("File not found: ", metadata_path)
     }
-    
+
     # 2) Read CSV (quietly, no factors)
     metadata <- read.csv(metadata_path, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
-    
+
     # Remove completely empty rows (all NA or all blank strings)
     metadata <- metadata[rowSums(is.na(metadata) | metadata == "") != ncol(metadata), ]
-    
+
     # 3) Required columns present?
-    required_cols <- c("site_station_code", "timestamp_deploy", "timestamp_remove", 
+    required_cols <- c("site_station_code", "timestamp_deploy", "timestamp_remove",
                        "model", "sn", "metric", "status", "latitude", "longitude")
-    
+
     missing_cols  <- setdiff(required_cols, names(metadata))
     if (length(missing_cols)) {
       stop("Missing required column(s): ", paste(missing_cols, collapse = ", "))
     }
-    
+
     # 4) Parse timestamps (expect mdy_hm; auto-UTC)
     parse_dt <- function(x) {
       x_chr <- as.character(x)
@@ -42,24 +68,24 @@ QAQC_metadata <- function(metadata_path) {
     }
     metadata$timestamp_deploy <- parse_dt(metadata$timestamp_deploy)
     metadata$timestamp_remove <- parse_dt(metadata$timestamp_remove)
-    
+
     # 4) Warn if any timestamps are NA after parsing
     na_deploy <- which(is.na(metadata$timestamp_deploy))
     na_remove <- which(is.na(metadata$timestamp_remove))
     if (length(na_deploy)) warning("Missing/invalid 'timestamp_deploy' on row(s): ", paste(na_deploy, collapse = ", "))
     if (length(na_remove)) warning("Missing/invalid 'timestamp_remove' on row(s): ", paste(na_remove, collapse = ", "))
-    
+
     # 5) check deploy > remove
     if (any(metadata$timestamp_deploy > metadata$timestamp_remove, na.rm = TRUE)) {
       bad_rows <- which(metadata$timestamp_deploy > metadata$timestamp_remove)
       stop("Deploy time is after remove time on row(s): ", paste(bad_rows, collapse = ", "))
     }
-    
+
     # 6) station number as character
     if ("sn" %in% names(metadata)) {
       metadata$sn <- as.character(metadata$sn)  # preserve leading zeros if any
     }
-    
+
     # 7) Latitude / Longitude QAQC (decimal degrees expected)
     has_lat <- "latitude"  %in% names(metadata)
     has_lon <- "longitude" %in% names(metadata)
@@ -68,9 +94,12 @@ QAQC_metadata <- function(metadata_path) {
     } else {
       lat_chr <- trimws(as.character(metadata$latitude))
       lon_chr <- trimws(as.character(metadata$longitude))
-      
+
       # Looks like DMS or contains N/S/E/W or degree symbols?
-      looks_non_decimal <- function(x) grepl("[NSEW°'\"\u00B0]", x, ignore.case = TRUE)
+      looks_non_decimal <- function(x) {
+        grepl("[NSEW\u00B0'\"]", x, ignore.case = TRUE)
+      }
+
       bad_fmt_rows <- which((!is.na(lat_chr) & looks_non_decimal(lat_chr)) |
                               (!is.na(lon_chr) & looks_non_decimal(lon_chr)))
       if (length(bad_fmt_rows)) {
@@ -78,39 +107,39 @@ QAQC_metadata <- function(metadata_path) {
                 paste(bad_fmt_rows, collapse = ", "),
                 ". Expected decimal degrees (e.g., 49.1234, -123.4567).")
       }
-      
+
       # Coerce to numeric (non-numeric -> NA)
       metadata$latitude  <- suppressWarnings(as.numeric(lat_chr))
       metadata$longitude <- suppressWarnings(as.numeric(lon_chr))
-      
+
       # Missingness warnings
       miss_lat <- which(is.na(metadata$latitude))
       miss_lon <- which(is.na(metadata$longitude))
       if (length(miss_lat)) warning("Missing latitude (decimal degrees) on row(s): ", paste(miss_lat, collapse = ", "))
       if (length(miss_lon)) warning("Missing longitude (decimal degrees) on row(s): ", paste(miss_lon, collapse = ", "))
-      
+
       # Only-one-missing per row
       one_missing <- which(xor(is.na(metadata$latitude), is.na(metadata$longitude)))
       if (length(one_missing)) {
         warning("Only one of latitude/longitude supplied on row(s): ", paste(one_missing, collapse = ", "))
       }
-      
+
       # Range checks
       bad_lat <- which(!is.na(metadata$latitude)  & (metadata$latitude  < -90  | metadata$latitude  > 90))
       bad_lon <- which(!is.na(metadata$longitude) & (metadata$longitude < -180 | metadata$longitude > 180))
       if (length(bad_lat)) warning("Latitude out of range [-90, 90] on row(s): ", paste(bad_lat, collapse = ", "))
       if (length(bad_lon)) warning("Longitude out of range [-180, 180] on row(s): ", paste(bad_lon, collapse = ", "))
     }
-    
+
     # 8) Metric / measurement_type QAQC (folded-in qc_measurement_type)
     valid_metrics = c("waterlevel", "barometric", "conductivity", "dissolvedoxygen")
-    
+
     metric_raw <- metadata$metric
     metric_std <- gsub(" ", "", tolower(as.character(metric_raw)))
-    
+
     bad_metric_rows <- which(is.na(metric_std) | !metric_std %in% valid_metrics)
-    
-    
+
+
     if (length(bad_metric_rows) > 0) {
       stop(
         "QC check failed: invalid 'metric' value(s) on row(s): ",
@@ -119,10 +148,10 @@ QAQC_metadata <- function(metadata_path) {
         paste(valid_metrics, collapse = ", ")
       )
     }
-    
+
     # Overwrite with standardized metric names (lowercase, no spaces)
     metadata$metric <- metric_std
-    
+
     metadata
 
   }, error = function(e) {
@@ -130,7 +159,32 @@ QAQC_metadata <- function(metadata_path) {
   })
 }
 
-
+#' Extract all data from a HOBO logger CSV file
+#'
+#' Reads a raw HOBO logger CSV file and extracts data values, column headers,
+#' serial number, logger type, and deployment information. This is an internal
+#' helper function used by [bind_hobo_files()] to parse individual logger files.
+#'
+#' @param file Character; file path to a HOBO logger CSV file.
+#'
+#' @return A data frame containing the extracted logger data with columns for
+#'   timestamp, data values, serial number (sn), logger type metadata, and
+#'   deployment information extracted from the file header.
+#'
+#' @details
+#' The function parses HOBO CSV files which have a specific format:
+#' \itemize{
+#'   \item Skips metadata header rows
+#'   \item Extracts serial number from header
+#'   \item Identifies data type and units from column names
+#'   \item Extracts logger model information
+#'   \item Reads timestamp and measurement data
+#' }
+#'
+#' Different HOBO logger models (U20, U24, MX2501, etc.) produce slightly
+#' different CSV formats, and this function handles these variations.
+#'
+#' @keywords internal
 extract_alldata_from_file <- function(file) {
   # Read raw HOBO file as-is (no name mangling)
   data <- utils::read.csv(
@@ -141,16 +195,16 @@ extract_alldata_from_file <- function(file) {
     stringsAsFactors = FALSE,
     check.names      = FALSE
   )
-  
+
   file_name <- sub(".*/", "", file, perl = TRUE)
-  
+
   # ---- Parse timezone + logger info from row 2 -------------------------------
   tz_raw <- as.character(data[2, 2])
   tz     <- sub(".*(Date Time.*), ", "", tz_raw)
-  
+
   logger_info <- as.character(data[2, 3])
   logger_sn   <- regmatches(logger_info, regexpr("\\d{8}", logger_info))
-  
+
   # helper: parse "<Type>, <unit> (LGR ...)" -> type + unit
   parse_type_unit <- function(info) {
     info <- as.character(info)
@@ -162,10 +216,10 @@ extract_alldata_from_file <- function(file) {
     unit <- sub(".*, ", "", unit)               # after last ", "
     list(type = trimws(type), unit = trimws(unit))
   }
-  
+
   header_row <- as.character(data[2, ])
   n_cols     <- ncol(data)
-  
+
   # ---- Build metadata for all data columns (>=3 and non-empty) ---------------
   meta_tbl <- tibble::tibble(
     col_index  = seq_len(n_cols),
@@ -181,7 +235,7 @@ extract_alldata_from_file <- function(file) {
       type   = purrr::map_chr(parsed, "type"),
       unit   = purrr::map_chr(parsed, "unit")
     )
-  
+
   # First two channels kept for backward compatibility
   if (nrow(meta_tbl) >= 1) {
     dat1_type <- meta_tbl$type[1]
@@ -195,14 +249,14 @@ extract_alldata_from_file <- function(file) {
   } else {
     dat2_type <- dat2_unit <- NA_character_
   }
-  
+
   # ---- Trim to data rows + relevant columns ----------------------------------
   # Use serial number as first column
   data$V1 <- logger_sn
-  
+
   # Remove the two header rows, keep SN + timestamp + all data cols we identified
   data_clean <- data[-c(1, 2), c(1, 2, meta_tbl$col_index), drop = FALSE]
-  
+
   # Build measurement column names
   meas_names <- purrr::map2_chr(
     meta_tbl$type,
@@ -215,22 +269,22 @@ extract_alldata_from_file <- function(file) {
       }
     }
   )
-  
+
   # Fallback to the raw header text when parse failed
   meas_names <- ifelse(
     is.na(meas_names) | meas_names == "",
     meta_tbl$raw_header,
     meas_names
   )
-  
+
   new_names <- c("sn", "timestamp", meas_names)
   colnames(data_clean) <- new_names
-  
+
   data_clean <- tibble::as_tibble(data_clean)
-  
+
   # ---- Coerce measurement cols to numeric and drop all-NA rows ---------------
   meas_cols <- setdiff(names(data_clean), c("sn", "timestamp"))
-  
+
   if (length(meas_cols) > 0) {
     # numeric coercion (suppress warnings from non-numeric junk)
     data_clean <- data_clean %>%
@@ -240,7 +294,7 @@ extract_alldata_from_file <- function(file) {
           ~ suppressWarnings(as.numeric(.x))
         )
       )
-    
+
     # drop rows where ALL measurement columns are NA
     keep_row <- apply(
       dplyr::select(data_clean, dplyr::all_of(meas_cols)),
@@ -249,7 +303,7 @@ extract_alldata_from_file <- function(file) {
     )
     data_clean <- data_clean[keep_row, , drop = FALSE]
   }
-  
+
   # ---- Attach metadata columns -----------------------------------------------
   data_clean <- data_clean %>%
     dplyr::mutate(
@@ -260,6 +314,6 @@ extract_alldata_from_file <- function(file) {
       data2_type = dat2_type,
       dat2_unit  = dat2_unit
     )
-  
+
   return(data_clean)
 }

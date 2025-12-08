@@ -1,0 +1,30 @@
+Package: waterloggerQAQC
+Title: Quality Assurance and Control for Hydrometric Water Logger Data
+Version: 0.0.0.9000
+Authors@R:
+    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
+Description: Provides automated quality assurance and quality control (QA/QC)
+    tools for hydrometric time series data from HOBO water-level loggers.
+    Detects and flags anomalies in water level, barometric pressure, dissolved
+    oxygen, conductivity, and temperature data. Includes functions for data
+    ingestion, spatial barometric association, unit conversions, automated
+    QA/QC rules, manual adjustments, comprehensive audit logging, and
+    visualization of time series with QA/QC flags.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    dplyr,
+    geosphere,
+    ggplot2,
+    lubridate,
+    plotly,
+    purrr,
+    rlang,
+    tibble,
+    tidyr
+Suggests:
+    rmarkdown,
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

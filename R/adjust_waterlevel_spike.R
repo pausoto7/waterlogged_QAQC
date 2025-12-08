@@ -52,9 +52,8 @@
 #' @seealso \code{\link{waterlevel_qaqc}}, \code{\link{adjust_logger_NA}},
 #'   \code{\link{make_qaqc_log_row}}, \code{\link{qaqc_log_append}}
 #'
-#' @import dplyr
+#' @importFrom dplyr filter mutate
 #' @importFrom lubridate ymd_hms
-#'
 #' @examples
 #' \dontrun{
 #' adjusted_wl <- adjust_waterlevel_spike(

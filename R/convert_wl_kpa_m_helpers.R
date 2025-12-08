@@ -72,13 +72,13 @@ QAQC_wl_kpa_inputs <- function(input_data, logger_type_expected = "u20") {
   }
   
   ## --- Range QA/QC using the helper ---------------------------------
-  # Temperature: expected [-5, 40] °C
+  # Temperature: expected [-5, 40] \u00B0C
   warn_by_station_year(
     df        = input_data,
     value_col = "watertemp_C",
     lower     = -5,
     upper     = 40,
-    label     = "convert_waterlevel_kPa_m(): watertemp_C outside [-5, 40] °C by station/year:"
+    label     = "convert_waterlevel_kPa_m(): watertemp_C outside [-5, 40] \u00B0C by station/year:"
   )
   
   # Water pressure: very rough sanity range (adjust if you like)

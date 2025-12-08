@@ -49,9 +49,8 @@
 #'   \code{\link{make_qaqc_log_row}},
 #'   \code{\link{qaqc_log_append}}
 #'
-#' @import dplyr
+#' @importFrom dplyr filter mutate
 #' @importFrom lubridate ymd_hms
-#'
 #' @examples
 #' \dontrun{
 #' station_wl_qc2 <- adjust_WL_offset(

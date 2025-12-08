@@ -1,5 +1,25 @@
 # ---- Helpers ---------------------------------------------------------------
 
+#' Normalize and validate metric parameter
+#'
+#' Internal helper to standardize metric names and validate input. Converts
+#' various spellings and aliases to canonical metric names used throughout
+#' the package.
+#'
+#' @param metric Character; the metric name to normalize. Can be one of:
+#'   \code{"waterlevel"}, \code{"stage"}, \code{"DO"}, \code{"dissolvedoxygen"},
+#'   \code{"oxygen"}, \code{"baro"}, \code{"barometric"}, \code{"airpressure"},
+#'   \code{"watertemp"}, \code{"watertemperature"}, \code{"airtemp"},
+#'   \code{"airtemperature"}, or \code{"all"} (if \code{allow_all = TRUE}).
+#' @param allow_all Logical; if \code{TRUE}, allows \code{metric = "all"}.
+#'   Default is \code{FALSE}.
+#'
+#' @return A character string with the normalized metric name: one of
+#'   \code{"waterlevel"}, \code{"dissolvedoxygen"}, \code{"barometric"},
+#'   \code{"watertemp"}, \code{"airtemp"}, or \code{"all"}.
+#'
+#' @keywords internal
+#' @noRd
 normalise_metric <- function(metric, allow_all = FALSE) {
   if (is.null(metric) || length(metric) != 1L) {
     stop("`metric` must be a single, non-NULL value.", call. = FALSE)
@@ -28,6 +48,23 @@ normalise_metric <- function(metric, allow_all = FALSE) {
 }
 
 
+#' Resolve data processing version to file pattern
+#'
+#' Internal helper to convert user-supplied data processing version strings
+#' into standardized versions and corresponding file name patterns.
+#'
+#' @param data_processing Character; the data processing version. Accepts
+#'   various formats including: \code{"raw"}, \code{"v0.1"}, \code{"v0.2"},
+#'   \code{"v0.3"}, \code{"v1.0"}, \code{"clean"}, \code{"final"}, etc.
+#'
+#' @return A list with two elements:
+#'   \describe{
+#'     \item{data_processing}{Normalized version string (e.g., "v0.1", "v1.0")}
+#'     \item{pattern}{Regex pattern to match files of that version (e.g., "v0.1\\.csv$")}
+#'   }
+#'
+#' @keywords internal
+#' @noRd
 resolve_data_processing_pattern <- function(data_processing) {
   
   if (is.null(data_processing) || length(data_processing) != 1L) {
@@ -84,6 +121,26 @@ resolve_data_processing_pattern <- function(data_processing) {
 
 
 
+#' Summarize logger data by temporal scale
+#'
+#' Internal helper to aggregate time series data by hour, day, week, month,
+#' or year. Produces summary statistics (mean, min, max) for metric-specific
+#' value columns.
+#'
+#' @param dat Data frame containing cleaned logger data with a \code{timestamp}
+#'   column, \code{site_station_code}, and metric-specific value columns.
+#' @param metric_norm Character; normalized metric name (one of
+#'   \code{"dissolvedoxygen"}, \code{"waterlevel"}, \code{"barometric"},
+#'   \code{"airtemp"}, \code{"watertemp"}).
+#' @param temporal_scale Character; aggregation interval. One of
+#'   \code{"hourly"}, \code{"daily"}, \code{"weekly"}, \code{"monthly"},
+#'   or \code{"yearly"}.
+#'
+#' @return A data frame with one row per station per time group, containing
+#'   mean, min, and max values for the relevant metric columns.
+#'
+#' @keywords internal
+#' @noRd
 summarise_clean_data <- function(dat, metric_norm, temporal_scale) {
   # temporal_scale already validated upstream
   
@@ -251,8 +308,88 @@ summarise_clean_data <- function(dat, metric_norm, temporal_scale) {
 }
 
 
+#' Normalize and validate temporal_scale parameter
+#'
+#' Internal helper to standardize temporal aggregation scale strings and
+#' validate input.
+#'
+#' @param temporal_scale Character; the temporal scale to normalize. Can be
+#'   one of: \code{"none"}, \code{"hourly"}, \code{"daily"}, \code{"weekly"},
+#'   \code{"monthly"}, or \code{"yearly"} (case and spaces ignored).
+#'
+#' @return A character string with the normalized temporal scale: one of
+#'   \code{"none"}, \code{"hourly"}, \code{"daily"}, \code{"weekly"},
+#'   \code{"monthly"}, or \code{"yearly"}.
+#'
+#' @keywords internal
+#' @noRd
+normalise_temporal_scale <- function(temporal_scale) {
+  if (is.null(temporal_scale) || length(temporal_scale) != 1L) {
+    stop("`temporal_scale` must be a single, non-NULL value.", call. = FALSE)
+  }
+
+  ts <- tolower(trimws(temporal_scale))
+  ts <- gsub("\\s+", "", ts)
+
+  # Map various spellings to canonical forms
+  if (ts %in% c("none", "raw", "original")) return("none")
+  if (ts %in% c("hour", "hourly", "hr"))    return("hourly")
+  if (ts %in% c("day", "daily"))            return("daily")
+  if (ts %in% c("week", "weekly"))          return("weekly")
+  if (ts %in% c("month", "monthly"))        return("monthly")
+  if (ts %in% c("year", "yearly", "annual")) return("yearly")
+
+  stop(
+    "Unknown `temporal_scale`. Expected one of: ",
+    "'none', 'hourly', 'daily', 'weekly', 'monthly', 'yearly' ",
+    "(case and spaces ignored). You gave: '", temporal_scale, "'.",
+    call. = FALSE
+  )
+}
+
+
+#' Column names to convert to factors
+#'
+#' Internal character vector listing column names that should be converted
+#' to factors when reading logger data. Used by \code{get_logger_data()}.
+#'
+#' @keywords internal
+#' @noRd
 factor_cols <- c(
   "sn", "baro_code", "qaqc_code", "wl_qaqc_code",
   "do_qaqc_code", "wt_qaqc_code", "at_qaqc_code", "baro_qaqc_code"
 )
+
+
+#' Read a single logger CSV file
+#'
+#' Internal helper to read logger CSV files and convert specific columns
+#' to factors.
+#'
+#' @param file_path Character; path to a single CSV file.
+#'
+#' @return A data frame with the file contents, with specific columns
+#'   converted to factors.
+#'
+#' @keywords internal
+#' @noRd
+read_logger_file <- function(file_path) {
+  dat <- utils::read.csv(file_path, stringsAsFactors = FALSE)
+
+  # Convert timestamp to POSIXct if it exists
+  if ("timestamp" %in% names(dat)) {
+    if (!inherits(dat$timestamp, "POSIXct")) {
+      dat$timestamp <- as.POSIXct(dat$timestamp, tz = "UTC")
+    }
+  }
+
+  # Convert specific columns to factors
+  for (col in factor_cols) {
+    if (col %in% names(dat)) {
+      dat[[col]] <- as.factor(dat[[col]])
+    }
+  }
+
+  dat
+}
 

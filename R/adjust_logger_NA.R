@@ -60,9 +60,8 @@
 #'   \code{\link{conductivity_qaqc_all}}, \code{\link{make_qaqc_log_row}},
 #'   \code{\link{qaqc_log_append}}
 #'
-#' @import dplyr
+#' @importFrom dplyr filter mutate case_when
 #' @importFrom lubridate ymd_hms
-#'
 #' @export
 adjust_logger_NA <- function(
     input_data,

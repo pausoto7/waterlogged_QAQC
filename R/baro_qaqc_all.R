@@ -23,9 +23,9 @@
 #' @param log_root Root folder where QA/QC logs are written by
 #'   [barometric_qaqc()] and related functions, typically the same as
 #'   `path_to_output_folder`, e.g. `"data/testing/processed"`.
-#' @param temp_low_limit Lower bound (°C) for plausible barometric logger
+#' @param temp_low_limit Lower bound (\u00B0C) for plausible barometric logger
 #'   temperatures. Values outside this range may be flagged or removed.
-#' @param temp_high_limit Upper bound (°C) for plausible barometric logger
+#' @param temp_high_limit Upper bound (\u00B0C) for plausible barometric logger
 #'   temperatures.
 #' @param pressure_low_kpa Lower bound (kPa) for plausible barometric
 #'   pressure.
@@ -45,9 +45,10 @@
 #'
 #' @seealso [barometric_qaqc()], [QAQC_metadata()], [add_nearest_baro()]
 #'
-#' @import dplyr
+#' @importFrom dplyr filter pull bind_rows mutate arrange select
 #' @importFrom lubridate ymd_hms year as_date
 #' @importFrom tibble tibble
+#' @importFrom rlang sym
 #' @export
 barometric_qaqc_all <- function(
     baro_data_path,

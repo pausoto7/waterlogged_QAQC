@@ -1,9 +1,60 @@
-
-source("R/convert_wl_kpa_m_helpers.R")
-
+#' Convert water level pressure (kPa) to depth (meters)
+#'
+#' Converts absolute pressure readings from water level loggers (in kPa) to
+#' water depth or stage (in meters) using manual reference measurements.
+#' The function performs calibration by matching logger pressure readings to
+#' known water levels at specific times, then applies the conversion to the
+#' entire time series.
+#'
+#' @param input_data Data frame containing water level logger data with at
+#'   least `site_station_code`, `timestamp`, `waterpress_kPa`, and
+#'   `airpress_kPa` columns (typically from [add_nearest_baro()]).
+#' @param select_station Character; station code to process. Use `"all"` or
+#'   `NA` to process all stations in `input_data`.
+#' @param reference_data Either a file path to a CSV containing manual reference
+#'   measurements or a data frame with columns `site_station_code`, `timestamp`,
+#'   and either `stage_m` or `depth_m`.
+#' @param reference_type Character; either `"stage"` or `"depth"` to indicate
+#'   which column in `reference_data` contains the reference water level.
+#'   Defaults to `"stage"`.
+#' @param select_measurement Integer; which reference measurement to use when
+#'   multiple measurements exist for a station (defaults to 1, the first/closest).
+#' @param logger_type_expected Character; expected logger type for validation
+#'   (defaults to `"u20"`). Used to check that pressure data are appropriate.
+#' @param path_to_output_folder Directory where yearly v0.3 converted files will
+#'   be written (e.g., `"data/processed"`).
+#'
+#' @details
+#' The function converts pressure to water level using the formula:
+#' \deqn{waterlevel\_m = (waterpress\_kPa - airpress\_kPa) / 9.81}
+#'
+#' Calibration adjusts this value to match reference measurements by calculating
+#' an offset. When `select_station = "all"`, the function processes all stations
+#' and returns combined results with a faceted QAQC plot.
+#'
+#' Yearly v0.3 CSV files are written to
+#' `<path_to_output_folder>/<year>/processed/` with filenames of the form
+#' `<station>_WL_<startdate>_<enddate>_v0.3.csv`.
+#'
+#' @return A list with three elements:
+#'   \describe{
+#'     \item{[[1]] (site_wl)}{Data frame with converted water level in meters
+#'       (`waterlevel_m` column) plus all original columns.}
+#'     \item{[[2]] (ref_dat)}{Data frame of reference measurements used for
+#'       calibration.}
+#'     \item{[[3]] (wl_plot)}{Interactive plotly plot showing converted water
+#'       level time series with reference measurements overlaid.}
+#'   }
+#'
+#' @seealso [add_nearest_baro()], [QAQC_reference_data()], [convert_waterlevel_single()]
+#'
+#' @importFrom dplyr bind_rows
+#' @importFrom ggplot2 ggplot aes geom_line geom_point facet_wrap labs theme_classic
+#' @importFrom plotly ggplotly
+#' @export
 convert_waterlevel_kPa_m <- function(input_data,
                                      select_station,
-                                     reference_data,      # path or data.frame
+                                     reference_data,
                                      reference_type = "stage",
                                      select_measurement = 1,
                                      logger_type_expected = "u20",

@@ -140,7 +140,7 @@ plot_qaqc_timeseries <- function(wl_data   = NULL,
         ggplot2::scale_color_manual(values = line_cols) +
         ggplot2::labs(
           title  = "DO logger & baro temperature",
-          y      = "Temperature (°C)",
+          y      = "Temperature (\u00B0C)",
           x      = "",
           colour = ""
         ) +
@@ -260,7 +260,7 @@ plot_qaqc_timeseries <- function(wl_data   = NULL,
         ggplot2::scale_color_manual(values = line_cols) +
         ggplot2::labs(
           title  = "Conductivity logger temperature",
-          y      = "Temperature (°C)",
+          y      = "Temperature (\u00B0C)",
           x      = "",
           colour = ""
         ) +
@@ -362,7 +362,7 @@ plot_qaqc_timeseries <- function(wl_data   = NULL,
       ggplot2::scale_color_manual(values = line_cols) +
       ggplot2::labs(
         title  = "WL logger temperatures",
-        y      = "Temperature (°C)",
+        y      = "Temperature (\u00B0C)",
         x      = "",
         colour = ""
       ) +
@@ -445,7 +445,7 @@ plot_qaqc_timeseries <- function(wl_data   = NULL,
         ggplot2::scale_color_manual(values = line_cols) +
         ggplot2::labs(
           title  = paste("Barometric air temperature -", select_station),
-          y      = "Air temperature (°C)",
+          y      = "Air temperature (\u00B0C)",
           x      = "",
           colour = ""
         ) +

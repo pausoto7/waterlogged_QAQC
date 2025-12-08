@@ -1,6 +1,36 @@
 
 
 
+#' Apply temperature compensation to conductivity measurements
+#'
+#' Adjusts conductivity values to a standard reference temperature (typically 25\u00B0C)
+#' using temperature compensation coefficients based on ISO 7888. This corrects
+#' for the effect of temperature on conductivity measurements.
+#'
+#' @param input_data Data frame containing conductivity data with columns
+#'   `conduct_uScm_adj` (adjusted conductivity in µS/cm) and `watertemp_C_adj`
+#'   (adjusted water temperature in \u00B0C).
+#'
+#' @return The input data frame with an additional column `spc_uScm_adj`
+#'   containing specific conductance (temperature-compensated conductivity
+#'   values) normalized to 25\u00B0C.
+#'
+#' @details
+#' The function uses a 5th-order polynomial fitted to ISO 7888 temperature
+#' compensation coefficients. The compensation is applied row-wise based on
+#' the water temperature at each measurement.
+#'
+#' Temperature compensation formula:
+#' \deqn{C_{25} = C_T / f(T)}
+#'
+#' where \eqn{C_T} is conductivity at temperature T, \eqn{C_{25}} is conductivity
+#' at 25\u00B0C, and \eqn{f(T)} is the temperature compensation coefficient.
+#'
+#' @seealso [conductivity_qaqc()], [conductivity_qaqc_all()]
+#'
+#' @importFrom tidyr pivot_longer
+#' @importFrom dplyr starts_with mutate select arrange
+#' @export
 conductivity_temp_compensation <- function(input_data) {
   
   # ---- Required columns ------------------------------------------------------
@@ -15,7 +45,13 @@ conductivity_temp_compensation <- function(input_data) {
   }
   
   # ---- Temperature compensation coefficients (ISO 7888 nonlinear) -----------
-  path_tcomp_tbl <- system.file("extdata", "tempcomp27888.csv", package = "waterlogged")
+  path_tcomp_tbl <- system.file("extdata", "tempcomp27888.csv", package = "waterloggerQAQC")
+
+  if (path_tcomp_tbl == "" || !file.exists(path_tcomp_tbl)) {
+    stop("Temperature compensation table 'tempcomp27888.csv' not found in package extdata. ",
+         "This file is required for conductivity temperature compensation.")
+  }
+
   tcomp <- read.csv(path_tcomp_tbl)
   
   # tidy table: expand temp range offset columns X0..X0.9

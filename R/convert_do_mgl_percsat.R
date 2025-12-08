@@ -23,7 +23,7 @@
 #'   \item \code{timestamp}        (POSIXct, UTC)
 #'   \item \code{site_station_code}
 #'   \item \code{do_mgl}           dissolved oxygen (mg/L)
-#'   \item \code{watertemp_C}      water temperature (°C)
+#'   \item \code{watertemp_C}      water temperature (\u00B0C)
 #'   \item \code{airpress_kPa}     barometric pressure (kPa)
 #' }
 #'
@@ -53,10 +53,9 @@
 #' Weiss, R. F. (1974). *Oxygen solubility in water and seawater based on
 #'   the virial equation.* Deep-Sea Research.
 #'
-#' @export
-#'
-#' @import dplyr
+#' @importFrom dplyr mutate case_when select arrange distinct filter
 #' @importFrom lubridate year date ymd_hms
+#' @export
 
 
 convert_do_mgl_percsat <- function(do_data,

@@ -1,3 +1,61 @@
+#' Write finalized v1.0 clean data files
+#'
+#' Exports QA/QC'd logger data to versioned CSV files (v1.0) organized by
+#' station, year, and metric. Files are written to `<path_to_output_folder>/<year>/clean/`
+#' with filenames of the form `<station>_<HEADER>_<startdate>_<enddate>_v1.0.csv`.
+#'
+#' @param input_data Data frame containing QA/QC'd logger data with required
+#'   columns depending on the metric (see Details). Must include
+#'   `site_station_code` and `timestamp`.
+#' @param path_to_output_folder Character; root directory where clean data files
+#'   will be written. Year-specific `clean/` subfolders are created as needed
+#'   (e.g., `"data/processed"`).
+#' @param metric Character; the data metric type. Must be one of:
+#'   `"waterlevel"`, `"dissolvedoxygen"`, `"barometric"`, `"watertemp"`, or
+#'   `"airtemp"`.
+#'
+#' @details
+#' Required columns vary by metric:
+#'
+#' **waterlevel:**
+#' \itemize{
+#'   \item Required: `site_station_code`, `timestamp`, `waterlevel_m`, `waterlevel_m_adj`
+#'   \item Optional: `watertemp_C`, `watertemp_C_adj`, `waterlevel_reference`
+#' }
+#'
+#' **dissolvedoxygen:**
+#' \itemize{
+#'   \item Required: `site_station_code`, `timestamp`, `do_mgl`, `do_mgl_adj`,
+#'     `do_percsat`, `do_percsat_adj`
+#'   \item Optional: `watertemp_C`, `watertemp_C_adj`
+#' }
+#'
+#' **barometric:**
+#' \itemize{
+#'   \item Required: `site_station_code`, `timestamp`, `airpress_kPa`, `airpress_kPa_adj`
+#'   \item Optional: `airtemp_C`, `airtemp_C_adj`
+#' }
+#'
+#' **watertemp:**
+#' \itemize{
+#'   \item Required: `site_station_code`, `timestamp`, `watertemp_C`, `watertemp_C_adj`
+#' }
+#'
+#' **airtemp:**
+#' \itemize{
+#'   \item Required: `site_station_code`, `timestamp`, `airtemp_C`
+#'   \item Optional: `airtemp_C_adj`
+#' }
+#'
+#' All `flag_*` and `edit_*` columns are automatically included in output files.
+#'
+#' @return Invisibly returns the cleaned data frame with year added as a column.
+#'   Files are written to disk as a side effect with informative messages.
+#'
+#' @seealso [waterlevel_qaqc()], [dissox_qaqc()], [barometric_qaqc()], [get_logger_data()]
+#'
+#' @importFrom lubridate year date
+#' @export
 write_clean_data <- function(
     input_data,
     path_to_output_folder,

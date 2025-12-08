@@ -1,18 +1,75 @@
+#' Automatic QA/QC for conductivity data
+#'
+#' Applies automated quality assurance and quality control rules to electrical
+#' conductivity time series data. Detects and flags conductivity spikes, dry
+#' sensor periods (very low conductivity), temperature anomalies, and ice
+#' conditions. All QA/QC actions are logged for traceability.
+#'
+#' @param input_data Data frame containing conductivity logger data with
+#'   columns: `site_station_code`, `timestamp`, `conduct_uScm`, and
+#'   `watertemp_C`. Optional: `airtemp_C` for enhanced dry detection.
+#' @param select_station Character; the station code to process (must match
+#'   a value in `site_station_code` column).
+#' @param log_root Character; root directory where QA/QC logs will be written.
+#'   Log files are created at `<log_root>/logs/<station>_<metric>_QAQC_log.csv`.
+#' @param user Character; username to record in the QA/QC log. Defaults to
+#'   `Sys.info()[["user"]]`.
+#' @param temp_low_limit_C Numeric; lower temperature limit (\u00B0C). Values below
+#'   this threshold are flagged as out of range. Defaults to -2\u00B0C.
+#' @param temp_high_limit_C Numeric; upper temperature limit (\u00B0C). Values above
+#'   this threshold are flagged as out of range. Defaults to 40\u00B0C.
+#' @param disturbance_threshold_uScm Numeric; threshold (µS/cm) for flagging
+#'   sudden conductivity changes between consecutive readings. Defaults to 200 µS/cm.
+#' @param dry_threshold_uScm Numeric; conductivity threshold (µS/cm) below which
+#'   the sensor is likely dry. Defaults to 10 µS/cm.
+#' @param air_water_diff_threshold_C Numeric; temperature difference threshold (\u00B0C)
+#'   between air and water to support dry sensor inference. Defaults to 2\u00B0C.
+#'
+#' @details
+#' The function applies the following QA/QC rules:
+#'
+#' **Conductivity Rules:**
+#' \itemize{
+#'   \item Spikes: consecutive readings differing by > 200 µS/cm are flagged
+#'   \item Dry detection: conductivity < 10 µS/cm flagged as potential dry sensor
+#'   \item Enhanced dry detection: if `airtemp_C` is present, dry is also flagged
+#'     when conductivity is low AND air-water temperature difference <= 2\u00B0C
+#' }
+#'
+#' **Water Temperature Rules:**
+#' \itemize{
+#'   \item Temperatures < -2\u00B0C or > 40\u00B0C are flagged as out of range
+#'   \item Temperatures < 0.1\u00B0C are flagged as potential ice conditions
+#'   \item Temperatures between -1\u00B0C and 0\u00B0C are corrected to 0\u00B0C
+#' }
+#'
+#' Creates adjusted columns `conduct_uScm_adj` and `watertemp_C_adj` along with
+#' flag columns including `flag_co_spike`, `flag_co_dry`, and `flag_co_ice`.
+#'
+#' @return A data frame containing the input data for `select_station` with
+#'   additional adjusted columns (`*_adj`) and flag columns. Rows are sorted
+#'   by timestamp. QA/QC log entries are written to disk as a side effect.
+#'
+#' @seealso [conductivity_qaqc_all()], [conductivity_temp_compensation()], [plot_qaqc_timeseries()]
+#'
+#' @importFrom dplyr filter arrange mutate case_when bind_rows tibble
+#' @importFrom lubridate ymd_hms
+#' @export
 conductivity_qaqc <- function(
     input_data,
     select_station,
     log_root,
     user                       = Sys.info()[["user"]],
-    temp_low_limit_C           = -2,    # below this = out of range (likely logger / ice)
-    temp_high_limit_C          = 40,    # above this = out of range
-    disturbance_threshold_uScm = 200,   # sudden >200 uS/cm change between samples
-    dry_threshold_uScm         = 10,    # very low cond = probable dry
-    air_water_diff_threshold_C = 2      # |air - water| <= 2°C to support dry inference
+    temp_low_limit_C           = -2,
+    temp_high_limit_C          = 40,
+    disturbance_threshold_uScm = 200,
+    dry_threshold_uScm         = 10,
+    air_water_diff_threshold_C = 2
 ) {
   # ---------------------------------------------------------------------------
   # Hard-coded small-temp rules:
-  #   * Water temperature < 0.1 °C is considered possible ICE.
-  #   * Slightly negative water temperatures between -1 and 0 °C are set to 0 °C.
+  #   * Water temperature < 0.1 \u00B0C is considered possible ICE.
+  #   * Slightly negative water temperatures between -1 and 0 \u00B0C are set to 0 \u00B0C.
   # ---------------------------------------------------------------------------
   ice_threshold_C        <- 0.1
   near_zero_temp_window  <- c(-1, 0)
@@ -122,14 +179,14 @@ conductivity_qaqc <- function(
       flag        = df$flag_co_temp_ice %in% TRUE,
       field       = "watertemp_C_adj",
       code        = "FLAG_ICE",
-      action_note = "Water temperature < 0.1 °C (likely ice); flagged for review."
+      action_note = "Water temperature < 0.1 \u00B0C (likely ice); flagged for review."
     ),
     # Slight negatives corrected to 0
     list(
       flag        = df$flag_co_temp_neg_near %in% TRUE,
       field       = "watertemp_C_adj",
       code        = "NEGATIVE_WT",
-      action_note = "Water temperature between -1 and 0 °C corrected to 0 °C."
+      action_note = "Water temperature between -1 and 0 \u00B0C corrected to 0 \u00B0C."
     ),
     # Out-of-range temps (low or high)
     list(
@@ -138,7 +195,7 @@ conductivity_qaqc <- function(
       code        = "TEMP_RANGE",
       action_note = paste0(
         "Water temperature outside acceptable range (",
-        temp_low_limit_C, " to ", temp_high_limit_C, " °C); set to NA."
+        temp_low_limit_C, " to ", temp_high_limit_C, " \u00B0C); set to NA."
       )
     ),
     # Dry conditions – COND-specific

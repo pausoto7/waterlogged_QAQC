@@ -1,0 +1,53 @@
+# R project files
+^waterloggerQAQC\.Rproj$
+^\.Rproj\.user$
+
+# License markdown (keep LICENSE, exclude LICENSE.md from build)
+^LICENSE\.md$
+
+# Claude Code directory
+^\.claude$
+
+# Git files
+^\.git$
+^\.gitignore$
+
+# Development/workflow test files at root level
+^test_package\.R$
+^test_workflow\.R$
+^test_workflow_complete\.R$
+
+# R session files
+^\.Rhistory$
+^\.RData$
+^\.Rprofile$
+
+# Editor/IDE files
+^\.vscode$
+^\.idea$
+~$
+^\#.*\#$
+
+# CI/CD files (if you add them later)
+^\.github$
+^\.gitlab-ci\.yml$
+^\.travis\.yml$
+^appveyor\.yml$
+
+# Documentation build artifacts
+^_pkgdown\.yml$
+^docs$
+^pkgdown$
+
+# Build artifacts
+^.*\.Rcheck$
+^.*\.tar\.gz$
+^revdep$
+
+# README source files (keep README.md, exclude README.Rmd if present)
+^README\.Rmd$
+^README-.*\.png$
+
+# NEWS source
+^NEWS\.md$
+^cran-comments\.md$

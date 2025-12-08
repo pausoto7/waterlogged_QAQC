@@ -68,13 +68,17 @@
 #'   metadata_path       = "data/testing/raw/testing_metadata.csv"
 #' )
 #' }
-
-
-
- add_nearest_baro <- function(input_data, path_to_output_folder,
+#'
+#' @importFrom dplyr mutate filter select arrange group_by left_join bind_rows rename row_number
+#' @importFrom lubridate is.POSIXct ymd_hms year as_date
+#' @importFrom rlang sym
+#' @importFrom ggplot2 ggplot aes geom_line facet_wrap labs theme_classic scale_color_manual
+#' @importFrom geosphere distHaversine
+#' @export
+add_nearest_baro <- function(input_data, path_to_output_folder,
                               baro_data_path,
-                              metric = c("water level", "DO", "both"), 
-                              max_km = 30, 
+                              metric = c("water level", "DO", "both"),
+                              max_km = 30,
                               baro_site_selection = "auto",
                               metadata_path){
    

@@ -17,9 +17,9 @@
 #' \itemize{
 #'   \item Water temperature < \code{temp_low_limit_C} or
 #'         > \code{temp_high_limit_C} is considered out of range.
-#'   \item Slightly negative water temperatures in [-1, 0) °C are treated as
-#'         sensor noise and corrected to 0 °C, flagged as \code{"NEGATIVE_WT"}.
-#'   \item Water temperature in [0, 0.1) °C is flagged as \code{"ICE"}.
+#'   \item Slightly negative water temperatures in [-1, 0) \u00B0C are treated as
+#'         sensor noise and corrected to 0 \u00B0C, flagged as \code{"NEGATIVE_WT"}.
+#'   \item Water temperature in [0, 0.1) \u00B0C is flagged as \code{"ICE"}.
 #'   \item Sudden changes in conductivity > \code{disturbance_threshold_uScm}
 #'         between samples are flagged as \code{"SPIKE"}.
 #'   \item Very low conductivity (< \code{dry_threshold_uScm} µS/cm) is used
@@ -34,15 +34,15 @@
 #'   (\code{site_station_code}).
 #' @param log_root Root directory where QA/QC logs are stored.
 #' @param user Character user name stored in QA/QC logs.
-#' @param temp_low_limit_C Minimum acceptable water temperature (°C) before
+#' @param temp_low_limit_C Minimum acceptable water temperature (\u00B0C) before
 #'   being flagged as out of range.
-#' @param temp_high_limit_C Maximum acceptable water temperature (°C) before
+#' @param temp_high_limit_C Maximum acceptable water temperature (\u00B0C) before
 #'   being flagged as out of range.
 #' @param disturbance_threshold_uScm Threshold (µS/cm) for detecting
 #'   conductivity spikes between consecutive samples.
 #' @param dry_threshold_uScm Threshold (µS/cm) below which conductivity is
 #'   considered “very low” and may indicate dry conditions.
-#' @param air_water_diff_threshold_C Maximum allowed absolute difference (°C)
+#' @param air_water_diff_threshold_C Maximum allowed absolute difference (\u00B0C)
 #'   between air and water temperature to support a dry inference when
 #'   conductivity is very low.
 #'
@@ -80,13 +80,13 @@ conductivity_qaqc <- function(
     temp_high_limit_C          = 40,    # above this = out of range
     disturbance_threshold_uScm = 200,   # sudden >200 uS/cm change between samples
     dry_threshold_uScm         = 10,    # very low cond = probable dry
-    air_water_diff_threshold_C = 2      # |air - water| <= 2°C to support dry inference
+    air_water_diff_threshold_C = 2      # |air - water| <= 2\u00B0C to support dry inference
 ) {
   
   # ---------------------------------------------------------------------------
   # NOTE: This function automatically:
-  #   1) Flags water temperature < 0.1 °C as ICE (for non-negative temps).
-  #   2) Corrects slightly negative water temperatures between -1 and 0 °C to 0.
+  #   1) Flags water temperature < 0.1 \u00B0C as ICE (for non-negative temps).
+  #   2) Corrects slightly negative water temperatures between -1 and 0 \u00B0C to 0.
   # These thresholds are intentionally hard-coded because small negative temps
   # are almost always sensor noise, not real liquid-water temperatures.
   ice_threshold_C        <- 0.1
@@ -194,7 +194,7 @@ conductivity_qaqc <- function(
   df$cond_qaqc_note <- dplyr::case_when(
     df$cond_qaqc_code == "DRY_AIRTEMP"   ~ paste0(
       "Likely dry: cond < ", dry_threshold_uScm,
-      " uS/cm and |air - water| <= ", air_water_diff_threshold_C, " °C"
+      " uS/cm and |air - water| <= ", air_water_diff_threshold_C, " \u00B0C"
     ),
     df$cond_qaqc_code == "DRY_COND_ONLY" ~ paste0(
       "Very low conductivity (< ", dry_threshold_uScm, " uS/cm)"
@@ -202,13 +202,13 @@ conductivity_qaqc <- function(
     df$cond_qaqc_code == "SPIKE"         ~ paste0(
       "Spike > ", disturbance_threshold_uScm, " uS/cm"
     ),
-    df$cond_qaqc_code == "NEGATIVE_WT"   ~ "Negative water temperature corrected to 0 °C",
-    df$cond_qaqc_code == "ICE"           ~ "Water temperature < 0.1 °C (likely ice)",
+    df$cond_qaqc_code == "NEGATIVE_WT"   ~ "Negative water temperature corrected to 0 \u00B0C",
+    df$cond_qaqc_code == "ICE"           ~ "Water temperature < 0.1 \u00B0C (likely ice)",
     df$cond_qaqc_code == "TEMP_LOW"      ~ paste0(
-      "Water temperature < ", temp_low_limit_C, " °C"
+      "Water temperature < ", temp_low_limit_C, " \u00B0C"
     ),
     df$cond_qaqc_code == "TEMP_HIGH"     ~ paste0(
-      "Water temperature > ", temp_high_limit_C, " °C"
+      "Water temperature > ", temp_high_limit_C, " \u00B0C"
     ),
     TRUE                                 ~ df$cond_qaqc_note
   )
@@ -229,10 +229,10 @@ conductivity_qaqc <- function(
          note = "Conductivity below dry threshold"),
     list(name = "ICE",
          idx  = which(temp_ice),
-         note = "Water temperature < 0.1 °C (likely ice)"),
+         note = "Water temperature < 0.1 \u00B0C (likely ice)"),
     list(name = "NEGATIVE_WT",
          idx  = which(near_zero),
-         note = "Negative water temperature corrected to 0 °C"),
+         note = "Negative water temperature corrected to 0 \u00B0C"),
     list(name = "TEMP_RANGE",
          idx  = which(temp_low | temp_high),
          note = "Water temperature outside acceptable range")

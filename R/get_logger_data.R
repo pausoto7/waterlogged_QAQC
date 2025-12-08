@@ -50,15 +50,11 @@
 #'       }
 #'   }
 #'
+#' @importFrom dplyr filter bind_rows mutate select
+#' @importFrom ggplot2 ggplot aes geom_line labs theme_minimal
+#' @importFrom lubridate floor_date
+#' @importFrom purrr map_df
 #' @export
-#' @import dplyr
-#' @import ggplot2
-#' @import lubridate
-#' @import purrr
-#' 
-
-source("R/get_logger_data_utils.R")
-
 get_logger_data <- function(path_to_data,
                             data_processing = c("v1.0", "raw", "v0.1", "v0.2", "v0.3"),
                             metric          = NULL,

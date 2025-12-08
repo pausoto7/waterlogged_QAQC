@@ -1,5 +1,56 @@
-source("R/qaqc_log_helpers.R")
-
+#' Automatic QA/QC for water level and water temperature data
+#'
+#' Applies automated quality assurance and quality control rules to water level
+#' and water temperature time series data. Detects and flags potential issues
+#' including sensor disturbances, dry conditions, ice presence, and invalid
+#' temperature readings. All QA/QC actions are logged for traceability.
+#'
+#' @param input_data Data frame containing water level logger data with columns:
+#'   `site_station_code`, `timestamp`, `waterlevel_m`, `watertemp_C`,
+#'   `waterpress_kPa`, `airpress_kPa`, and `airtemp_C`. Typically the output
+#'   from [convert_waterlevel_kPa_m()].
+#' @param select_station Character; the station code to process (must match
+#'   a value in `site_station_code` column).
+#' @param log_root Character; root directory where QA/QC logs will be written.
+#'   Log files are created at `<log_root>/logs/<station>_<metric>_QAQC_log.csv`.
+#' @param user Character; username to record in the QA/QC log. Defaults to
+#'   `Sys.info()[["user"]]`.
+#'
+#' @details
+#' The function applies the following QA/QC rules:
+#'
+#' **Water Temperature Rules:**
+#' \itemize{
+#'   \item Temperatures < -1\u00B0C are set to NA (invalid readings)
+#'   \item Temperatures between -1\u00B0C and 0\u00B0C are corrected to 0\u00B0C
+#'   \item Temperatures < 0.3\u00B0C are flagged as potential ice conditions
+#' }
+#'
+#' **Water Level Rules:**
+#' \itemize{
+#'   \item Step changes > 0.1 m between consecutive readings flagged as disturbance
+#'   \item Dry sensor detection based on:
+#'     \itemize{
+#'       \item Water temperature > 19\u00B0C
+#'       \item Water pressure <= air pressure
+#'       \item Water-air temperature difference < 2\u00B0C
+#'       \item Air temperature warmer than water temperature
+#'     }
+#' }
+#'
+#' Creates adjusted columns `waterlevel_m_adj` and `watertemp_C_adj` along with
+#' flag columns: `flag_disturbance`, `flag_ice`, `flag_wl_dry`, `neg_lt_minus1`,
+#' and `neg_between`.
+#'
+#' @return A data frame containing the input data for `select_station` with
+#'   additional adjusted columns (`*_adj`) and flag columns. Rows are sorted
+#'   by timestamp. QA/QC log entries are written to disk as a side effect.
+#'
+#' @seealso [convert_waterlevel_kPa_m()], [qaqc_log_append()], [plot_qaqc_timeseries()]
+#'
+#' @importFrom dplyr filter arrange mutate lead case_when select bind_rows tibble
+#' @importFrom lubridate ymd_hms
+#' @export
 waterlevel_qaqc <- function(input_data,
                             select_station,
                             log_root,
@@ -63,7 +114,7 @@ waterlevel_qaqc <- function(input_data,
       wt_air_warmer = !is.na(watertemp_C) & !is.na(airtemp_C) &
         (airtemp_C - watertemp_C) < 0,
       
-      # old WL-based dry rule, updated to 19°C to match watertemp_qaqc doc
+      # old WL-based dry rule, updated to 19\u00B0C to match watertemp_qaqc doc
       flag_dry_wl = !is.na(waterlevel_m) & !is.na(watertemp_C) &
         !is.na(waterpress_kPa) & !is.na(airpress_kPa) &
         (watertemp_C > 19 | waterpress_kPa <= airpress_kPa),
@@ -77,7 +128,7 @@ waterlevel_qaqc <- function(input_data,
       # adjust temperature based on negatives
       watertemp_C_adj = dplyr::case_when(
         neg_lt_minus1 ~ NA_real_,  # remove clearly impossible temps
-        neg_between   ~ 0,         # small negatives corrected to 0 °C
+        neg_between   ~ 0,         # small negatives corrected to 0 \u00B0C
         TRUE          ~ watertemp_C_adj
       )
     ) %>%
@@ -101,13 +152,13 @@ waterlevel_qaqc <- function(input_data,
       flag        = output_data$neg_lt_minus1 | output_data$neg_between,
       field       = "watertemp_C_adj",
       code        = "NEGATIVE_WT",
-      action_note = "Negative water temperature detected; removed (< -1°C) or corrected to 0°C (-1 to 0°C)."
+      action_note = "Negative water temperature detected; removed (< -1\u00B0C) or corrected to 0\u00B0C (-1 to 0\u00B0C)."
     ),
     list(
       flag        = output_data$flag_ice %in% TRUE,
       field       = "watertemp_C_adj",
       code        = "FLAG_ICE",
-      action_note = "Possible ice conditions: water temperature < 0.3°C; flagged for review."
+      action_note = "Possible ice conditions: water temperature < 0.3\u00B0C; flagged for review."
     ),
     # WL-related rules (waterlevel_m_adj field)
     list(
