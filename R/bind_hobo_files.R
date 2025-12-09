@@ -280,9 +280,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   
   # CONDUCTIVITY LOGGER U24 ---------------------------------------------
   # Only run this block if the folder metric is conductivity
-  
-  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
-  # CONDUCTIVITY LOGGER U24 ---------------------------------------------
+
   if (measurement_type == "conductivity") {
     
     nm <- names(sites_compiled)
@@ -305,7 +303,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
     full_col <- if (length(full_col)) full_col[[1]] else NA_character_
     temp_col <- if (length(temp_col)) temp_col[[1]] else NA_character_
     
-    # Extract numeric vectors safely (avoid .data[[NA]])
+    # Extract numeric vectors safely 
     n <- nrow(sites_compiled)
     
     low_vals  <- if (!is.na(low_col))  suppressWarnings(as.numeric(sites_compiled[[low_col]]))  else rep(NA_real_, n)

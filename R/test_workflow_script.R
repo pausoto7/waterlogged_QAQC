@@ -61,6 +61,21 @@ cond_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/COND",
                             metadata_path = "data/testing/raw/testing_metadata.csv")
 
 
+# RESAMPLE time interval --------------------------------
+
+source("R/snap_logger_timestamps.R")
+
+wl_resampled_20mins <- resample_timestamps(
+  input_data     = level_bound[[1]],
+  interval       = "20 min",
+  align          = "round",
+  select_station = "ALBR_ST_30",
+  metric         = "WL",                               
+  log_root       = "data/testing/processed"              
+)
+
+
+
 # STEP 2 -  QAQC BAROMETRIC DATA ------------------------------------------------------------------
    # CHECK FOR UNUSUAL TEMPS, PRESSURS, SPIKES OR FLATLINES IN DATA
    # BELOW FUNCTION USES BAROMETRIC_QAQC.R FUNCTION TO RUN. ALL DATA DOES NOT HAVE TO BE RUN AT ONCE (e.g only one station can be run at a time). 
