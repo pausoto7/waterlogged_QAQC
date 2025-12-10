@@ -1,322 +1,388 @@
-#' Conductivity logger drift correction
+# R/quality/wq_drift_correction.R
+
+#' Water-quality drift correction (COND / DO / pH)
 #'
-#' Correct conductivity data for sensor drift based on discrete reference
-#' measurements (e.g., YSI). Works on `conduct_uScm_adj` and
-#' `watertemp_C_adj` (outputs from conductivity_qaqc_all) and adds
-#' drift–corrected columns `conduct_uScm_dc` and `watertemp_C_dc`.
+#' Forward, linear drift between visits, restarting at each visit.
+#' - Segment 0: from series start to first visit's end-sample.
+#' - "check": end-target uses nearest logger sample at visit time; restart at that sample.
+#' - "calibration": end-target uses last logger sample strictly before calibration_datetime;
+#'    restart at first sample at/after calibration_datetime (post-cal is trusted).
+#' - No segment after the last event.
 #'
-#' @param input_data Logger data frame for one or more stations. Must contain:
-#'   `site_station_code`, `timestamp`, `conduct_uScm_adj`, `watertemp_C_adj`.
-#' @param ref_data Reference data frame. Must contain:
-#'   `site_station_code`, `ysi_timestamp`, `ysi_conduct_uScm`, `ysi_watertemp_C`.
-#' @param select_station Character. `site_station_code` to correct.
-#'
-#' @return A list with:
-#'   \itemize{
-#'     \item `output_data` – logger data for `select_station` with
-#'       `conduct_uScm_dc`, `watertemp_C_dc` and updated `cond_qaqc_*` cols.
-#'     \item `ref_data_use` – reference rows actually used for this station.
-#'     \item `cal_devs` – calibration points with >10% deviation (may be empty).
-#'   }
-#'
-#' @import dplyr
-#' @import tidyr
-#' @importFrom lubridate dminutes
-#' @importFrom fuzzyjoin difference_left_join difference_anti_join
 #' @export
-conductivity_drift <- function(input_data,
-                          ref_data,
-                          select_station) {
+#' @import dplyr
+#' @importFrom lubridate parse_date_time ymd_hms
+#' @importFrom utils read.csv
+wq_drift_correction <- function(input_data,
+                                ref_data_path,
+                                select_station,
+                                metric,
+                                method        = c("ratio", "offset"),
+                                max_ref_gap_h = 1,
+                                log_root,
+                                user = Sys.info()[["user"]]) {
   
-  # ---- Basic input checks ----------------------------------------------------
-  required_logger_cols <- c(
-    "site_station_code",
-    "timestamp",
-    "conduct_uScm_adj",
-    "watertemp_C_adj"
-  )
-  missing_logger <- setdiff(required_logger_cols, names(input_data))
+  method <- match.arg(method)
+  
+  # ---- Map metric to columns
+  metric_norm <- normalize_string(metric)
+  if (metric_norm %in% c("cond", "conductivity")) {
+    metric_norm    <- "conductivity"
+    value_col      <- "conduct_uScm_adj"
+    code_col       <- "cond_qaqc_code"
+    note_col       <- "cond_qaqc_note"
+    adjnote_col    <- "cond_qaqc_adj"
+    edit_flag_col  <- "edit_cond_drift"
+    accepted_units <- c("uscm","µs/cm","μs/cm","uS/cm")
+    metric_log     <- "COND"
+  } else if (metric_norm %in% c("do", "dissolvedoxygen")) {
+    metric_norm    <- "dissolvedoxygen"
+    value_col      <- "do_percsat_adj"
+    code_col       <- "do_qaqc_code"
+    note_col       <- "do_qaqc_note"
+    adjnote_col    <- "do_qaqc_adj"
+    edit_flag_col  <- "edit_do_drift"
+    accepted_units <- c("%","percent","percent saturation","%sat","percsat")
+    metric_log     <- "DO"
+  } else if (metric_norm == "ph") {
+    metric_norm    <- "ph"
+    value_col      <- "ph_adj"
+    code_col       <- "ph_qaqc_code"
+    note_col       <- "ph_qaqc_note"
+    adjnote_col    <- "ph_qaqc_adj"
+    edit_flag_col  <- "edit_ph_drift"
+    accepted_units <- c("ph","pH")
+    metric_log     <- "PH"
+  } else {
+    stop("wq_drift_correction(): unsupported metric '", metric, "'.")
+  }
+  
+  # ---- Logger data checks
+  req_logger_cols <- c("site_station_code", "timestamp", value_col)
+  missing_logger  <- setdiff(req_logger_cols, names(input_data))
   if (length(missing_logger) > 0) {
-    stop(
-      "correct_drift(): input_data is missing required column(s): ",
-      paste(missing_logger, collapse = ", ")
-    )
+    stop("wq_drift_correction(): input_data missing: ", paste(missing_logger, collapse = ", "))
   }
   
-  required_ref_cols <- c(
-    "site_station_code",
-    "ysi_timestamp",
-    "ysi_conduct_uScm",
-    "ysi_watertemp_C"
-  )
-  missing_ref <- setdiff(required_ref_cols, names(ref_data))
-  if (length(missing_ref) > 0) {
-    stop(
-      "correct_drift(): ref_data is missing required column(s): ",
-      paste(missing_ref, collapse = ", ")
-    )
-  }
-  
-  # ---- Filter to station & ensure POSIXct ------------------------------------
   logger_data <- input_data %>%
-    dplyr::filter(site_station_code == !!select_station)
-  
-  if (!nrow(logger_data)) {
-    stop(
-      "correct_drift(): no rows found in input_data for station '",
-      select_station, "'."
-    )
-  }
+    dplyr::filter(.data$site_station_code == select_station) %>%
+    dplyr::arrange(.data$timestamp)
+  if (nrow(logger_data) == 0) stop("wq_drift_correction(): no rows for station '", select_station, "'.")
   
   if (!inherits(logger_data$timestamp, "POSIXct")) {
-    logger_data$timestamp <- as.POSIXct(logger_data$timestamp, tz = "UTC")
-    if (any(is.na(logger_data$timestamp))) {
-      warning(
-        "Some logger timestamps could not be converted to POSIXct. ",
-        "Check the format of input_data$timestamp."
-      )
-    }
+    logger_data$timestamp <- lubridate::ymd_hms(logger_data$timestamp, tz = "UTC")
+    if (any(is.na(logger_data$timestamp))) stop("wq_drift_correction(): bad logger timestamps.")
   }
   
-  time_range <- range(logger_data$timestamp, na.rm = TRUE)
+  log_ts   <- logger_data$timestamp
+  log_vals <- logger_data[[value_col]]
+  time_range <- range(log_ts, na.rm = TRUE)
   
-  # ---- Prepare reference data for this station ------------------------------
-  ref_data_site <- ref_data %>%
-    dplyr::filter(site_station_code == !!select_station) %>%
-    dplyr::rename(
-      ref_timestamp    = ysi_timestamp,
-      ref_conduct_uScm = ysi_conduct_uScm,
-      ref_watertemp_C  = ysi_watertemp_C
-    )
+  # ---- Reference data
+  if (!is.character(ref_data_path) || length(ref_data_path) != 1L) {
+    stop("wq_drift_correction(): `ref_data_path` must be a single character path.")
+  }
+  if (!file.exists(ref_data_path)) stop("wq_drift_correction(): reference file not found: ", ref_data_path)
   
-  if (!nrow(ref_data_site)) {
-    stop(
-      "correct_drift(): no reference measurements found for station '",
-      select_station, "'."
-    )
+  ref_data <- utils::read.csv(ref_data_path, stringsAsFactors = FALSE, check.names = FALSE)
+  
+  req_ref_cols <- c("metric","site_station_code","timestamp","watertemp_C","value","unit",
+                    "event_type","calibration_datetime")
+  missing_ref <- setdiff(req_ref_cols, names(ref_data))
+  if (length(missing_ref) > 0) {
+    stop("wq_drift_correction(): reference file missing: ", paste(missing_ref, collapse = ", "))
   }
   
-  if (!inherits(ref_data_site$ref_timestamp, "POSIXct")) {
-    ref_data_site$ref_timestamp <- as.POSIXct(ref_data_site$ref_timestamp, tz = "UTC")
-    if (any(is.na(ref_data_site$ref_timestamp))) {
-      warning(
-        "Some reference timestamps could not be converted to POSIXct. ",
-        "Check the format of ref_data$ysi_timestamp."
-      )
-    }
-  }
+  ref_data$._row_id <- seq_len(nrow(ref_data))
   
-  # keep only refs within +/- 2h of logger record
-  ref_data_site <- ref_data_site %>%
-    dplyr::filter(
-      ref_timestamp >= (time_range[1] - 60 * 120),
-      ref_timestamp <= (time_range[2] + 60 * 120)
+  ref_data <- ref_data %>%
+    dplyr::mutate(
+      metric_norm_file = dplyr::case_when(
+        normalize_string(.data$metric) %in% c("cond","conductivity")   ~ "conductivity",
+        normalize_string(.data$metric) %in% c("do","dissolvedoxygen") ~ "dissolvedoxygen",
+        normalize_string(.data$metric) %in% c("ph")                   ~ "ph",
+        TRUE ~ NA_character_
+      ),
+      site_station_code = as.character(.data$site_station_code)
     ) %>%
-    dplyr::select(ref_timestamp,
-                  ref_conduct_uScm,
-                  ref_watertemp_C)
+    dplyr::filter(.data$metric_norm_file == metric_norm,
+                  .data$site_station_code == select_station)
   
-  if (!nrow(ref_data_site)) {
-    stop(
-      "correct_drift(): no reference measurements within +/- 2 hours of logger ",
-      "record for station '", select_station, "'."
-    )
+  if (nrow(ref_data) == 0) {
+    stop("wq_drift_correction(): no refs for station '", select_station, "' & metric '", metric, "'.")
   }
   
-  # ---- Join reference values onto logger timestamps -------------------------
-  # 1) First pass: within 29 minutes
-  joined_refs <- fuzzyjoin::difference_left_join(
-    logger_data,
-    ref_data_site,
-    by       = c("timestamp" = "ref_timestamp"),
-    max_dist = lubridate::dminutes(29)
-  ) %>%
-    dplyr::mutate(difftime = timestamp - ref_timestamp)
-  
-  # 2) Unmatched reference points (pre/post deployment)
-  refs_unmatched <- fuzzyjoin::difference_anti_join(
-    ref_data_site,
-    logger_data,
-    by       = c("ref_timestamp" = "timestamp"),
-    max_dist = lubridate::dminutes(29)
+  # ---- Parse ref times & QC
+  parse_orders <- c("ymd HMS","ymd HM","mdy HMS","mdy HM","dmy HMS","dmy HM")
+  ref_data$timestamp <- lubridate::parse_date_time(ref_data$timestamp, orders = parse_orders, tz = "UTC")
+  ref_data$calibration_datetime[
+    ref_data$calibration_datetime == "" | trimws(ref_data$calibration_datetime) == ""
+  ] <- NA
+  ref_data$calibration_datetime <- lubridate::parse_date_time(
+    ref_data$calibration_datetime, orders = parse_orders, tz = "UTC"
   )
-  
-  # 3) Second pass: within 1 hour
-  joined_remainder <- fuzzyjoin::difference_left_join(
-    logger_data,
-    refs_unmatched,
-    by       = c("timestamp" = "ref_timestamp"),
-    max_dist = lubridate::dminutes(60)
-  ) %>%
-    dplyr::mutate(difftime = timestamp - ref_timestamp) %>%
-    dplyr::filter(!is.na(ref_timestamp))
-  
-  # 4) If still nothing, widen to 2 hours
-  if (!nrow(joined_remainder)) {
-    joined_remainder <- fuzzyjoin::difference_left_join(
-      logger_data,
-      refs_unmatched,
-      by       = c("timestamp" = "ref_timestamp"),
-      max_dist = lubridate::dminutes(120)
-    ) %>%
-      dplyr::mutate(difftime = timestamp - ref_timestamp) %>%
-      dplyr::filter(!is.na(ref_timestamp))
+  if (any(is.na(ref_data$timestamp))) {
+    bad_rows <- ref_data$._row_id[is.na(ref_data$timestamp)]
+    stop("wq_drift_correction(): bad reference `timestamp` rows: ", paste(bad_rows, collapse = ", "))
   }
   
-  # 5) Combine: remainder first so it wins when deduping
-  joined_data_all <- dplyr::bind_rows(joined_remainder, joined_refs) %>%
-    dplyr::distinct(timestamp, .keep_all = TRUE) %>%
-    dplyr::arrange(timestamp) %>%
-    dplyr::select(-difftime)
+  ref_data$event_type <- tolower(trimws(ref_data$event_type))
+  bad_event <- which(!ref_data$event_type %in% c("calibration","check","ignore") | is.na(ref_data$event_type))
+  if (length(bad_event) > 0) {
+    stop("wq_drift_correction(): invalid `event_type` on rows: ",
+         paste(ref_data$._row_id[bad_event], collapse = ", "),
+         " (allowed: calibration, check, ignore).")
+  }
   
-  # ---- Ensure an initial reference exists -----------------------------------
-  if (is.na(joined_data_all$ref_conduct_uScm[1])) {
-    joined_data_all$ref_conduct_uScm[1] <- joined_data_all$conduct_uScm_adj[1]
-    joined_data_all$ref_watertemp_C[1]  <- joined_data_all$watertemp_C_adj[1]
-    joined_data_all$ref_timestamp[1]    <- joined_data_all$timestamp[1]
+  cal_missing <- which(ref_data$event_type == "calibration" & is.na(ref_data$calibration_datetime))
+  if (length(cal_missing) > 0) {
+    stop("wq_drift_correction(): calibration rows require `calibration_datetime` on rows: ",
+         paste(ref_data$._row_id[cal_missing], collapse = ", "))
+  }
+  
+  noncal_with_cal <- which(ref_data$event_type != "calibration" & !is.na(ref_data$calibration_datetime))
+  if (length(noncal_with_cal) > 0) {
+    warning("wq_drift_correction(): `calibration_datetime` supplied on non-cal rows: ",
+            paste(ref_data$._row_id[noncal_with_cal], collapse = ", "),
+            "; ignored.")
+    ref_data$calibration_datetime[noncal_with_cal] <- NA
+  }
+  
+  ref_data$unit_clean <- tolower(trimws(ref_data$unit))
+  unit_ok <- ref_data$unit_clean %in% tolower(accepted_units)
+  if (!all(unit_ok)) {
+    bad_rows <- ref_data$._row_id[!unit_ok]
+    stop("wq_drift_correction(): unexpected `unit` for '", metric,
+         "' on rows: ", paste(bad_rows, collapse = ", "),
+         ". Accepted: ", paste(accepted_units, collapse = ", "), ".")
+  }
+  
+  ref_data$value <- suppressWarnings(as.numeric(ref_data$value))
+  bad_val <- which(is.na(ref_data$value))
+  if (length(bad_val) > 0) {
+    stop("wq_drift_correction(): non-numeric `value` on rows: ", paste(ref_data$._row_id[bad_val], collapse = ", "))
+  }
+  
+  # Keep refs if timestamp OR calibration_datetime intersects window (±2h)
+  win_start <- time_range[1] - 2*3600
+  win_end   <- time_range[2] + 2*3600
+  in_window <- function(t) !is.na(t) & t >= win_start & t <= win_end
+  ref_data <- ref_data %>%
+    dplyr::filter(in_window(.data$timestamp) | in_window(.data$calibration_datetime))
+  
+  if (nrow(ref_data) == 0) {
+    stop("wq_drift_correction(): no reference measurements within logger window for '", select_station, "'.")
+  }
+  
+  # ---- Build events
+  max_gap_sec <- max_ref_gap_h * 3600
+  nearest_idx <- function(target_time) {
+    diffs <- abs(as.numeric(log_ts - target_time, units = "secs"))
+    if (!length(diffs)) return(NA_integer_)
+    which.min(diffs)
+  }
+  last_before_idx <- function(target_time) {
+    idx <- which(log_ts < target_time)
+    if (length(idx) == 0) NA_integer_ else tail(idx, 1L)
+  }
+  first_at_or_after_idx <- function(target_time) {
+    idx <- which(log_ts >= target_time)
+    if (length(idx) == 0) NA_integer_ else idx[1L]
+  }
+  
+  events_list <- list()
+  for (i in seq_len(nrow(ref_data))) {
+    r  <- ref_data[i, ]
+    et <- r$event_type
+    if (et == "ignore") next
     
-    warning(
-      "correct_drift(): No initial reference measurement at start of logger ",
-      "record. Assuming perfect calibration at first logger timestamp.",
-      call. = FALSE
-    )
-  }
-  
-  # ---- Compute drift between reference points --------------------------------
-  diff_ref_points <- joined_data_all %>%
-    dplyr::filter(!is.na(ref_conduct_uScm)) %>%
-    dplyr::mutate(
-      ref_time_intv = dplyr::coalesce(
-        as.numeric(timestamp - dplyr::lag(timestamp),
-                   units = "hours"),
-        0
-      ),
-      per_c_offset = ref_conduct_uScm / conduct_uScm_adj,
-      per_t_offset = ref_watertemp_C  / watertemp_C_adj,
-      c_offset_diff = dplyr::coalesce(
-        per_c_offset - dplyr::lag(per_c_offset),
-        0
-      ),
-      t_offset_diff = dplyr::coalesce(
-        per_t_offset - dplyr::lag(per_t_offset),
-        0
+    if (et == "check") {
+      j_end <- nearest_idx(r$timestamp)
+      if (is.na(j_end)) next
+      gap <- abs(as.numeric(log_ts[j_end] - r$timestamp, units = "secs"))
+      if (!is.finite(gap) || gap > max_gap_sec) next
+      logger_end <- log_vals[j_end]
+      if (is.na(logger_end)) next
+      
+      ratio_end  <- if (logger_end == 0) NA_real_ else r$value / logger_end
+      offset_end <- r$value - logger_end
+      
+      events_list[[length(events_list)+1L]] <- data.frame(
+        event_end_time    = log_ts[j_end],
+        event_type        = "check",
+        ratio_end         = ratio_end,
+        offset_end        = offset_end,
+        anchor_start_time = log_ts[j_end],   # restart at check
+        stringsAsFactors  = FALSE
       )
-    )
-  
-  joined_data_drift <- joined_data_all %>%
-    dplyr::left_join(
-      diff_ref_points %>%
-        dplyr::select(
-          ref_timestamp,
-          ref_time_intv,
-          per_c_offset,
-          c_offset_diff,
-          per_t_offset,
-          t_offset_diff
-        ),
-      by = "ref_timestamp"
-    )
-  
-  joined_data_drift <- joined_data_drift %>%
-    tidyr::fill(ref_time_intv, .direction = "up") %>%
-    tidyr::fill(ref_timestamp, .direction = "down") %>%
-    dplyr::mutate(
-      time_elapsed = as.numeric(timestamp - ref_timestamp,
-                                units = "hours"),
-      time_ratio   = dplyr::coalesce(time_elapsed / ref_time_intv, 0),
-      time_ratio   = dplyr::if_else(is.infinite(time_ratio), 0, time_ratio)
-    )
-  
-  # ---- Apply drift correction -------------------------------------------------
-  output_data <- joined_data_drift %>%
-    tidyr::fill(
-      per_c_offset, per_t_offset,
-      c_offset_diff, t_offset_diff,
-      .direction = "down"
-    ) %>%
-    dplyr::mutate(
-      c_drift = per_c_offset + c_offset_diff * time_ratio,
-      t_drift = per_t_offset + t_offset_diff * time_ratio
-    ) %>%
-    tidyr::fill(c_drift, t_drift, .direction = "down") %>%
-    dplyr::mutate(
-      conduct_uScm_dc = conduct_uScm_adj * c_drift,
-      watertemp_C_dc  = watertemp_C_adj * t_drift
-    )
-  
-  # ---- Flag large calibration deviations -------------------------------------
-  cal_devs <- output_data %>%
-    dplyr::mutate(
-      cal_deviation = round(
-        abs(ref_conduct_uScm - conduct_uScm_adj) /
-          conduct_uScm_adj,
-        2
-      ),
-      row_index = dplyr::row_number()
-    ) %>%
-    dplyr::filter(!is.na(cal_deviation),
-                  cal_deviation > 0.1) %>%
-    dplyr::select(
-      row_index,
-      timestamp,
-      ref_conduct_uScm,
-      conduct_uScm_adj,
-      cal_deviation
-    )
-  
-  # ---- Update cond_qaqc_* columns --------------------------------------------
-  append_qaqc <- function(existing, new) {
-    ifelse(is.na(existing) | existing == "", new,
-           paste(existing, new, sep = "; "))
-  }
-  
-  if (!"cond_qaqc_code" %in% names(output_data)) {
-    output_data$cond_qaqc_code <- NA_character_
-  }
-  if (!"cond_qaqc_note" %in% names(output_data)) {
-    output_data$cond_qaqc_note <- NA_character_
-  }
-  if (!"cond_qaqc_adj" %in% names(output_data)) {
-    output_data$cond_qaqc_adj <- NA_character_
-  }
-  
-  output_data <- output_data %>%
-    dplyr::mutate(
-      cond_qaqc_code = dplyr::if_else(
-        !is.na(conduct_uScm_dc) &
-          conduct_uScm_dc != conduct_uScm_adj,
-        append_qaqc(cond_qaqc_code, "DRIFT_CORR"),
-        cond_qaqc_code
-      ),
-      cond_qaqc_note = dplyr::if_else(
-        !is.na(conduct_uScm_dc) &
-          conduct_uScm_dc != conduct_uScm_adj,
-        append_qaqc(cond_qaqc_note, "Applied drift correction"),
-        cond_qaqc_note
-      ),
-      cond_qaqc_adj = dplyr::if_else(
-        !is.na(conduct_uScm_dc) &
-          conduct_uScm_dc != conduct_uScm_adj,
-        append_qaqc(
-          cond_qaqc_adj,
-          paste0("Multiplied conductivity by ", round(c_drift, 3))
-        ),
-        cond_qaqc_adj
+      
+    } else if (et == "calibration") {
+      cal_time <- r$calibration_datetime
+      j_pre  <- last_before_idx(cal_time)        # strictly pre-cal
+      j_post <- first_at_or_after_idx(cal_time)  # post-cal anchor
+      if (is.na(j_pre) || is.na(j_post)) next
+      
+      gap <- as.numeric(cal_time - log_ts[j_pre], units = "secs")
+      if (!is.finite(gap) || gap > max_gap_sec) next
+      
+      logger_end <- log_vals[j_pre]
+      if (is.na(logger_end)) next
+      
+      ratio_end  <- if (logger_end == 0) NA_real_ else r$value / logger_end
+      offset_end <- r$value - logger_end
+      
+      events_list[[length(events_list)+1L]] <- data.frame(
+        event_end_time    = log_ts[j_pre],    # last pre-cal sample gets full correction
+        event_type        = "calibration",
+        ratio_end         = ratio_end,
+        offset_end        = offset_end,
+        anchor_start_time = log_ts[j_post],   # restart after cal
+        stringsAsFactors  = FALSE
       )
-    ) %>%
-    dplyr::arrange(timestamp)
+    }
+  }
   
-  if (nrow(cal_devs) > 0) {
-    warning(
-      "correct_drift(): One or more reference measurements deviate >10% ",
-      "from the logger reading. Inspect `cal_devs` for details.",
-      call. = FALSE
+  if (!length(events_list)) {
+    message("wq_drift_correction(): no usable events; returning input unchanged.")
+    return(input_data)
+  }
+  
+  events <- dplyr::bind_rows(events_list) %>%
+    dplyr::arrange(.data$event_end_time) %>%
+    dplyr::distinct(.data$event_end_time, .keep_all = TRUE)
+  
+  # ---- Build forward segments
+  segments <- list()
+  # Segment 0: start -> first event end
+  segments[[length(segments)+1L]] <- list(
+    start_time = log_ts[1],
+    end_time   = events$event_end_time[1],
+    ratio_end  = events$ratio_end[1],
+    offset_end = events$offset_end[1]
+  )
+  # Subsequent segments: restart at k -> end at k+1
+  if (nrow(events) >= 2) {
+    for (k in 1:(nrow(events)-1)) {
+      segments[[length(segments)+1L]] <- list(
+        start_time = events$anchor_start_time[k],
+        end_time   = events$event_end_time[k+1],
+        ratio_end  = events$ratio_end[k+1],
+        offset_end = events$offset_end[k+1]
+      )
+    }
+  }
+  # No segment after last event.
+  
+  # ---- Apply linear drift per segment
+  new_vals <- log_vals
+  edited   <- rep(FALSE, length(log_vals))
+  
+  apply_full_target_at <- function(t_end, ratio_end, offset_end) {
+    idx <- which(log_ts == t_end & !is.na(log_vals))
+    if (!length(idx)) return()
+    if (method == "ratio") {
+      if (!is.na(ratio_end) && is.finite(ratio_end)) new_vals[idx] <<- log_vals[idx] * ratio_end
+    } else {
+      if (!is.na(offset_end) && is.finite(offset_end)) new_vals[idx] <<- log_vals[idx] + offset_end
+    }
+    edited[idx] <<- TRUE
+  }
+  
+  for (seg in segments) {
+    st <- seg$start_time
+    et <- seg$end_time
+    if (is.na(st) || is.na(et)) next
+    
+    # Degenerate/instant segment: only end sample gets full target
+    if (et <= st) {
+      apply_full_target_at(et, seg$ratio_end, seg$offset_end)
+      next
+    }
+    
+    idx <- which(log_ts > st & log_ts <= et & !is.na(log_vals))
+    if (!length(idx)) next
+    
+    dur <- as.numeric(et - st, units = "secs")
+    if (dur <= 0) {
+      apply_full_target_at(et, seg$ratio_end, seg$offset_end)
+      next
+    }
+    
+    w <- as.numeric(log_ts[idx] - st, units = "secs") / dur
+    w[w < 0] <- 0; w[w > 1] <- 1
+    
+    if (method == "ratio") {
+      r_end <- seg$ratio_end
+      if (!is.na(r_end) && is.finite(r_end)) {
+        factor_t <- 1 + w * (r_end - 1)    # 1 → r_end
+        new_vals[idx] <- log_vals[idx] * factor_t
+        edited[idx] <- TRUE
+      }
+    } else {
+      off_end <- seg$offset_end
+      if (!is.na(off_end) && is.finite(off_end)) {
+        offset_t <- w * off_end            # 0 → off_end
+        new_vals[idx] <- log_vals[idx] + offset_t
+        edited[idx] <- TRUE
+      }
+    }
+  }
+  
+  # ---- Write back & QAQC fields
+  logger_data[[value_col]] <- new_vals
+  if (!edit_flag_col %in% names(logger_data)) logger_data[[edit_flag_col]] <- FALSE
+  logger_data[[edit_flag_col]] <- logger_data[[edit_flag_col]] | edited
+  
+  # ensure columns exist in input_data
+  new_cols <- setdiff(names(logger_data), names(input_data))
+  if (length(new_cols) > 0) for (nm in new_cols) input_data[[nm]] <- NA
+  
+  input_data <- dplyr::rows_update(input_data, logger_data, by = c("site_station_code","timestamp"))
+  edited_ts <- logger_data$timestamp[edited]
+  
+  append_qaqc <- function(existing, new_txt) {
+    ifelse(is.na(existing) | existing == "", new_txt, paste(existing, new_txt, sep = "; "))
+  }
+  if (!code_col %in% names(input_data))     input_data[[code_col]] <- NA_character_
+  if (!note_col %in% names(input_data))     input_data[[note_col]] <- NA_character_
+  if (!adjnote_col %in% names(input_data))  input_data[[adjnote_col]] <- NA_character_
+  
+  idx_station <- input_data$site_station_code == select_station
+  idx_edit    <- idx_station & input_data$timestamp %in% edited_ts
+  drift_label <- paste0("DRIFT_", toupper(method))
+  
+  if (any(idx_edit)) {
+    input_data[[code_col]][idx_edit] <- append_qaqc(input_data[[code_col]][idx_edit], drift_label)
+    input_data[[note_col]][idx_edit] <- append_qaqc(
+      input_data[[note_col]][idx_edit],
+      paste0("Forward linear drift (", method, "); refs: ", basename(ref_data_path))
+    )
+    input_data[[adjnote_col]][idx_edit] <- append_qaqc(
+      input_data[[adjnote_col]][idx_edit],
+      paste0("Restart at each visit; calibration end uses pre-cal; max_ref_gap_h=", max_ref_gap_h)
     )
   }
   
-  return(list(
-    output_data  = output_data,
-    ref_data_use = ref_data_site,
-    cal_devs     = cal_devs
-  ))
+  # QA/QC log (uses your existing helpers)
+  if (any(idx_edit)) {
+    ts_edit <- input_data$timestamp[idx_edit]
+    log_row <- make_qaqc_log_row(
+      timestamps  = ts_edit,
+      station     = select_station,
+      metric      = metric_log,
+      field       = value_col,
+      action      = "DRIFT_CORR",
+      code        = drift_label,
+      action_note = "Forward linear drift; restart at each visit; calibration end uses pre-cal.",
+      manual_note = "AUTOMATIC DRIFT CORRECTION",
+      fun_name    = "wq_drift_correction",
+      user        = user
+    )
+    log_path <- qaqc_log_path(log_root, select_station, metric_log)
+    qaqc_log_append(log_path = log_path, station = select_station, metric = metric_log, log_rows = log_row)
+  } else {
+    message("wq_drift_correction(): no values changed for '", select_station, "'.")
+  }
+  
+  input_data
 }

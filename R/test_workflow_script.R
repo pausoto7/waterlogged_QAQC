@@ -8,14 +8,12 @@
 
 # misc
 
-  # timestamp check for joining later on
   # a universal function could probably be created for writing csv names
-  # WANT TO MAKE A DRIFT FUNCTION for WL and also other params! #######
   # Add field data functionality + correst stage from field
   # Would be nice to have a function to compare visually between stations - probably similar code to plot_qaqc_timeseries but would be same metric diff stations
-  # versioning needs to change I think- the current versions don't really make sense and can add confusion if intermediate qaqc steps are done in a diff order
   # should we add the ability to remove flags/edits? Would need to be removed in both the log and associated col
-
+  # within the logging function, when it prints to the csv the "run_at" col automatically shows date/time as minutes:seconds.. would be nice if it showed properly as date time. 
+    # I'm guessing a as.character() might fix this but haven't had time to rectify this yet
 
 # metadata file 
 
@@ -30,7 +28,6 @@
 
 
 
-# add to vingette - hobo export
 
 library(tidyverse) # for use while this is still not in package format
 
@@ -61,7 +58,8 @@ cond_bound <- bind_hobo_files(path_to_raw_folder = "data/testing/raw/COND",
                             metadata_path = "data/testing/raw/testing_metadata.csv")
 
 
-# RESAMPLE time interval --------------------------------
+# NEW: Resample time interval --------------------------------
+ # resample time so that intervals round to the nearest, 10, 15, 30 etc. Useful for joining later
 
 source("R/snap_logger_timestamps.R")
 
@@ -147,9 +145,9 @@ DO_with_Baro <- add_nearest_baro(input_data = DO_bound[[1]],
 
 # STEP 3 - CONVERT WATERLEVEL FROM PRESSURE TO m's --------------------------------------------------------------------------------
 
-# To make more robust - in the future could make it so select_station accepts a list of stations
-# I'm not sure what the value is for returning the reference data..
-# double check workflow happening here 
+  # To make more robust - in the future could make it so select_station accepts a list of stations
+  # I'm not sure what the value is for returning the reference data..
+  # double check workflow happening here 
 
 source("R/convert_wl_kpa_m.R") # convert_waterlevel_kPa_m -> output v0.3
 
@@ -197,7 +195,10 @@ plot_qaqc_timeseries(
   select_station = "ALBR_ST_30"
 )
 
-# Do WL drift correction -------------------------------------------
+# NEW: Multi point drift correction -------------------------------------------
+
+  # drift correction tool for wl sensor drift. Typically used to correct to field 
+  # survey easurements 
 
 source("R/drift_wl.R")
 
@@ -286,7 +287,7 @@ adjusted_WL_NA <- adjust_logger_NA( station_wl_qc2,
     timestamp_end = "2025-06-09 00:00:00" ,  
     keep_temp         = FALSE,
     apply_to_all_data = FALSE,
-    manual_note = "Ice present - could see in field pics",         # required  explanation
+    manual_note = "Ice present - could see in field pics",         
     log_root = "data/testing/processed",            
 ) 
   
@@ -297,7 +298,6 @@ adjusted_WL_NA <- adjust_logger_NA( station_wl_qc2,
 source("R/adjust_wl_zero.R")
 
 # testing when change value is manually input
-
 wl_zero <- adjust_WL_zero(
   input_data      = station_wl_qc,
   select_station  = "ALBR_ST_30",
@@ -351,8 +351,6 @@ res_wl <- get_logger_data(
 # convert do mgl percsat
 
 # double check code to check that that math still makes sense for conversion after some code changes
-# do we really need version input here?
-
 
 source("R/convert_do_mgl_percsat.R")
 
@@ -410,15 +408,20 @@ reference_data <- QAQC_reference_data(reference_data)
 source("R/drift_conductivity.R") # missing reference data with these cols: ysi_timestamp, ysi_conduct_uScm, ysi_watertemp_C
                                  # to be able to QAQC this function
 
-cond_drif_corrected <- conductivity_drift(
-  input_data  = all_checked_cond_data,
-  ref_data = reference_data,
-  select_station = "TUMT_WE_40"
+cond_drift_corr <- wq_drift_correction(
+  input_data   = all_checked_cond_data,
+  ref_data     = "data/testing/raw/site_station_waterquality.csv",
+  select_station = "TUMT_WE_40",
+  metric         = "conductivity",      # optional in your design, but explicit is safer
+  method         = "ratio",     # or "offset"
+  max_ref_gap_h  = 1,           # only accept ref within 1 hr
+  log_root       = "data/testing/processed",
+  user           = Sys.info()[["user"]]
 )
 
 
-plot_qaqc_timeseries(cond_data = all_checked_cond_data,
-                     select_station = "CO_TUMT_WE_40")
+plot_qaqc_timeseries(cond_data = cond_drift_corr,
+                     select_station = "TUMT_WE_40")
 
 source("R/conductivity_temp_compensation.R")
 

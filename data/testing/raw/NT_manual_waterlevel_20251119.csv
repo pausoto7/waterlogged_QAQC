@@ -1,4 +1,4 @@
-Metric,site_station_code,site_name,site_type,timestamp,stage_m,depth_m,logger_dry,logger_ice,logger_disturbance,site_comments
+metric,site_station_code,site_name,site_type,timestamp,stage_m,depth_m,logger_dry,logger_ice,logger_disturbance,site_comments
 WL,ALBR_ST_30,ALBREDA RIVER,ST,7/23/2019 14:30,,0.35,,,,Logger deployed at 14:30
 WL,CEDA_ST_30,CEDAR CREEK,ST,7/25/2019 18:00,,0.43,,,,"Water level and air temp logger deployed, discharge measured on July 24"
 WL,CEDA_ST_30,CEDAR CREEK,ST,8/6/2020 15:22,,,,,,"Barometric logger deployed, discharge measured on July 24 during habitat surveys"
