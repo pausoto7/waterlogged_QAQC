@@ -1,3 +1,24 @@
+
+guess_role_from_cols <- function(df) {
+  if (is.null(df)) return("none")
+  nms <- names(df)
+  has <- function(...) all(c(...) %in% nms)
+  
+  # DO (either mg/L or %sat)
+  if (has("do_mgl", "do_mgl_adj") || has("do_percsat", "do_percsat_adj")) return("do")
+  # Conductivity
+  if (has("conduct_uScm", "conduct_uScm_adj")) return("cond")
+  # Water level
+  if (has("waterlevel_m", "waterlevel_m_adj")) return("wl")
+  # Baro (pressure + temps)
+  if (has("airpress_kPa", "airpress_kPa_adj") && (("airtemp_C" %in% nms) || ("airtemp_C_adj" %in% nms))) return("baro")
+  
+  "unknown"
+}
+
+format_found <- function(role, arg) sprintf("%s: %s", arg, role)
+
+
 #' Normalise QA/QC input data frame
 #'
 #' Filters to a single station, ensures POSIXct timestamps,

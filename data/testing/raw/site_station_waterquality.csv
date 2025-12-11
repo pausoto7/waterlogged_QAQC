@@ -1,8 +1,9 @@
 metric,site_station_code,timestamp,watertemp_C,value,unit,event_type,calibration_datetime,comments
 cond,TUMT_WE_40,4/21/2025 11:40,9.5,26,uScm,check,,
-cond,TUMT_WE_40,5/7/2025 9:05,17.6,25,uScm,calibration,5/7/2025 9:05,
+cond,TUMT_WE_40,5/7/2025 9:05,17.6,25,uScm,calibration,5/7/2025 9:10,
 cond,TUMT_WE_40,5/16/2025 12:42,12.2,28,uScm,calibration,5/16/2025 12:42,
 cond,TUMT_WE_40,5/26/2025 15:00,10,27,uScm,check,,
-do,COOK_WE_40,5/2/2025 2:00,15,11,percsat,calibration,5/2/2025 2:00,
-do,COOK_WE_40,7/15/2025 4:00,15,9,percsat,ignore,,
-do,COOK_WE_40,9/21/2025 12:00,15,10,percsat,check,,
+do,COOK_WE_40,5/2/2025 2:22,15,99,percsat,calibration,5/2/2025 2:00,
+do,COOK_WE_40,7/15/2025 4:12,15,98,percsat,ignore,,
+do,COOK_WE_40,7/20/2025 10:45,15,87,percsat,check,,
+do,COOK_WE_40,9/21/2025 12:00,15,100,percsat,check,,
