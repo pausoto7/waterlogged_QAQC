@@ -100,11 +100,14 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
 
 
 
-
-
-
-
-
+#NEW FUNCITON - STILL IN TESTING CURRENTLY -
+wl_with_datum <- wl_set_datum(
+  input_data       = converted_data,
+  level_runs_path  = "data/testing/raw/example_wl_level_runs.csv" ,
+  select_station   = "ALBR_ST_30",
+  log_root         = "data/testing/processed",
+  user             = Sys.info()[["user"]]
+)
 
 
 
