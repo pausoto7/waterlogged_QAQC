@@ -1,78 +1,7 @@
-#' Add nearest barometric data to logger time series
-#'
-#' Attaches barometric pressure and air temperature to water-level and/or
-#' dissolved oxygen logger data. Barometric data can be selected manually
-#' (a single specified baro station) or automatically by choosing and
-#' stitching the nearest barometric stations within a specified distance.
-#'
-#' For each site and metric, yearly processed files with appended barometric
-#' data are written to \code{path_to_output_folder}.
-#'
-#' @param input_data Data frame of logger records requiring barometric data
-#'   (e.g., output from \code{bind_hobo_files()} for water level or DO).
-#' @param path_to_output_folder Directory where processed files with barometric
-#'   data will be written (e.g., \code{"data/testing/processed"}). Year-specific
-#'   \code{processed/} subfolders are created as needed.
-#' @param baro_data_path Directory containing barometric CSV files, typically
-#'   the same processed folder used for barometric QAQC
-#'   (e.g., \code{"data/testing/processed"}).
-#' @param metric Character; which metrics in \code{input_data} require
-#'   barometric data. Options: \code{"water level"}, \code{"DO"}, or
-#'   \code{"both"}.
-#' @param max_km Maximum distance (km) to search for barometric stations in
-#'   automatic mode, or \code{NULL} to impose no maximum distance (i.e., use
-#'   the nearest stations regardless of distance).
-#' @param baro_site_selection Either \code{"auto"} (default) to automatically
-#'   select and stitch the nearest barometric stations, or a specific
-#'   \code{site_station_code} to force a single barometric station
-#'   (e.g., \code{"BARO_DARL_ST_30"}).
-#' @param metadata_path Path to the metadata file used to identify logger sites
-#'   and barometric stations (e.g., \code{"data/testing/raw/testing_metadata.csv"}).
-#'
-#' @return A list of length two:
-#'   \describe{
-#'     \item{[[1]]}{A data frame containing \code{input_data} with appended
-#'       barometric fields (e.g., \code{airpress_kPa}, \code{airtemp_C},
-#'       \code{baro_site_stn_code}, \code{baro_qaqc_code}, etc.).}
-#'     \item{[[2]]}{A \code{ggplot2} QC plot showing barometric pressure through
-#'       time, coloured by barometric station code for each site.}
-#'   }
-#'
-#' @examples
-#' \dontrun{
-#' # Typical testing workflow paths -----------------------------
-#'
-#' level_bound <- bind_hobo_files(
-#'   path_to_raw_folder    = "data/testing/raw/level",
-#'   path_to_output_folder = "data/testing/processed",
-#'   metadata_path         = "data/testing/raw/testing_metadata.csv"
-#' )
-#'
-#' # Use a 30 km radius (default)
-#' wl_with_baro <- add_nearest_baro(
-#'   input_data           = level_bound[[1]],
-#'   path_to_output_folder = "data/testing/processed",
-#'   baro_data_path       = "data/testing/processed",
-#'   metric               = "both",
-#'   max_km               = 30,
-#'   baro_site_selection  = "auto",
-#'   metadata_path        = "data/testing/raw/testing_metadata.csv"
-#' )
-#'
-#' # No distance limit (just use nearest baros, regardless of km)
-#' wl_with_baro_nolimit <- add_nearest_baro(
-#'   input_data           = level_bound[[1]],
-#'   path_to_output_folder = "data/testing/processed",
-#'   baro_data_path       = "data/testing/processed",
-#'   metric               = "both",
-#'   max_km               = NULL,
-#'   baro_site_selection  = "auto",
-#'   metadata_path        = "data/testing/raw/testing_metadata.csv"
-#' )
-#' }
-add_nearest_baro <- function(input_data, path_to_output_folder,
+add_nearest_baro <- function(input_data,
+                             path_to_output_folder,
                              baro_data_path,
-                             metric = c("water level", "DO", "both"),
+                             metric = c("water level", "DO", "conductivity", "both", "all"),
                              max_km = 30,
                              baro_site_selection = "auto",
                              metadata_path) {
@@ -85,18 +14,22 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
   }
   
   # only convert to POSIXct format if it's not already in the format.
-  if (!lubridate::is.POSIXct(input_data$timestamp)) {
+  if (!inherits(input_data$timestamp, "POSIXct")) {
     input_data$timestamp <- lubridate::ymd_hms(input_data$timestamp, tz = "UTC")
   }
   
   # QC + normalization for metrics param ----
-  metrics_info      <- resolve_metrics_param(metric)
-  metrics_raw       <- metrics_info$metrics_raw
+  metrics_info      <- resolve_metrics_param(metric[1])
   metrics_need_baro <- metrics_info$metrics_need_baro
   
   # normalize metric names in input_data and metadata ----
   input_data <- input_data %>%
-    dplyr::mutate(metric_norm = normalize_string(metric))
+    dplyr::mutate(
+      metric_norm = dplyr::case_when(
+        grepl("cond", tolower(metric)) ~ normalize_string("conductivity"),
+        TRUE                          ~ normalize_string(metric)
+      )
+    )
   
   metadata <- metadata %>%
     dplyr::mutate(metric_norm = normalize_string(metric))
@@ -107,7 +40,7 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
   
   if (!nrow(input_data)) {
     stop(
-      "No rows found requiring baro for metrics: ",
+      "add_nearest_baro(): No rows found requiring baro for metrics: ",
       paste(metrics_need_baro, collapse = ", "),
       call. = FALSE
     )
@@ -121,12 +54,37 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
   # function for creating safe regex patterns
   escape_regex <- function(x) gsub("([][{}()+*^$|\\.?\\\\-])", "\\\\\\1", x)
   
+  # metric -> file code mapping (bind_hobo_files naming convention)
+  metric_code_map <- list(
+    "waterlevel"      = "WL",
+    "wl"              = "WL",
+    "do"              = "DO",
+    "dissolvedoxygen" = "DO",
+    "conductivity"    = "COND",
+    "cond"            = "COND"
+  )
+  
+  metric_to_code <- function(metric_norm_value) {
+    if (metric_norm_value %in% names(metric_code_map)) {
+      metric_code_map[[metric_norm_value]]
+    } else {
+      toupper(metric_norm_value)
+    }
+  }
+  
+  pct_missing <- function(x) {
+    if (is.null(x)) return(NA_real_)
+    n <- length(x)
+    if (n == 0) return(NA_real_)
+    round(mean(is.na(x)) * 100, 1)
+  }
+  
+  df_with_baro <- NULL
+  
   ## ---------------------------------------------------------------------------
   ## MANUAL BARO SELECTION
   ## ---------------------------------------------------------------------------
   if (baro_site_selection != "auto") {
-    
-    # ... MANUAL BRANCH UNCHANGED ...
     
     baro_meta <- metadata %>%
       dplyr::filter(metric == "barometric",
@@ -134,11 +92,12 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
     
     if (nrow(baro_meta) == 0) {
       stop("Selected barometric site '", baro_site_selection,
-           "' not found in metadata with metric == 'barometric'.")
+           "' not found in metadata with metric == 'barometric'.", call. = FALSE)
     }
     
     baro_stn <- baro_site_selection
     
+    # Find all BARO files for that station
     baro_pattern <- paste0("^", escape_regex(baro_stn), "_BARO_.*\\.csv$")
     
     file_paths <- list.files(
@@ -148,80 +107,71 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       recursive  = TRUE
     )
     
-    print(list.files(baro_data_path, pattern = "_BARO_", recursive = TRUE))
-    
     if (!length(file_paths)) {
       stop("No BARO files found for selected site: ", baro_stn,
-           " under ", baro_data_path)
+           " under ", baro_data_path, call. = FALSE)
     }
     
     file <- dplyr::bind_rows(
       lapply(file_paths, read.csv, stringsAsFactors = FALSE, check.names = FALSE)
     )
     
+    # Ensure timestamp exists and convert to POSIXct
     if (!"timestamp" %in% names(file)) {
       ts_cand <- intersect(c("timestamp","Timestamp","Date Time","datetime","date_time"),
                            names(file))
-      if (length(ts_cand) == 0)
-        stop("No timestamp column found in BARO files for ", baro_stn)
-      
+      if (length(ts_cand) == 0) {
+        stop("No timestamp column found in BARO files for ", baro_stn, call. = FALSE)
+      }
       file <- dplyr::rename(file, timestamp = !!rlang::sym(ts_cand[1]))
     }
     
     file$timestamp <- lubridate::ymd_hms(file$timestamp, tz = "UTC")
     
+    # Prefer adjusted columns if present
     press_col <- if ("airpress_kPa_adj" %in% names(file)) "airpress_kPa_adj" else "airpress_kPa"
     temp_col  <- if ("airtemp_C_adj"   %in% names(file)) "airtemp_C_adj"   else "airtemp_C"
     
+    if (!press_col %in% names(file)) {
+      stop("BARO file(s) for ", baro_stn,
+           " are missing airpress_kPa (or airpress_kPa_adj).", call. = FALSE)
+    }
+    
     press_clean <- file %>%
-      dplyr::select(timestamp, !!press_col) %>%
-      dplyr::rename(!!baro_stn := !!rlang::sym(press_col))
+      dplyr::select(timestamp, !!rlang::sym(press_col)) %>%
+      dplyr::rename(airpress_kPa = !!rlang::sym(press_col))
     
     if (!is.null(temp_col) && temp_col %in% names(file)) {
       temp_clean <- file %>%
-        dplyr::select(timestamp, !!temp_col) %>%
-        dplyr::rename(!!baro_stn := !!rlang::sym(temp_col))
+        dplyr::select(timestamp, !!rlang::sym(temp_col)) %>%
+        dplyr::rename(airtemp_C = !!rlang::sym(temp_col))
     } else {
-      temp_clean <- dplyr::tibble(
-        timestamp = press_clean$timestamp,
-        !!baro_stn := NA_real_
-      )
+      temp_clean <- dplyr::tibble(timestamp = press_clean$timestamp, airtemp_C = NA_real_)
     }
     
-    wide_press <- press_clean %>% dplyr::arrange(timestamp)
-    wide_temp  <- temp_clean  %>% dplyr::arrange(timestamp)
-    
-    baro_col <- baro_stn
-    
-    wide_baro_df <- wide_press %>%
+    wide_baro_df <- press_clean %>%
+      dplyr::arrange(timestamp) %>%
       dplyr::mutate(
-        airpress_kPa       = .data[[baro_col]],
-        baro_site_stn_code = baro_col,
+        baro_site_stn_code = baro_stn,
         baro_qaqc_adj      = NA_character_,
         baro_qaqc_note     = "manual barometric selection",
         baro_qaqc_code     = "MANUAL_BARO"
       ) %>%
-      dplyr::left_join(
-        wide_temp %>%
-          dplyr::transmute(
-            timestamp,
-            airtemp_C = .data[[baro_col]]
-          ),
-        by = "timestamp"
-      )
+      dplyr::left_join(temp_clean %>% dplyr::arrange(timestamp), by = "timestamp")
     
     df_with_baro <- input_data %>%
       dplyr::left_join(
         wide_baro_df %>%
           dplyr::select(
-            timestamp, airpress_kPa, baro_site_stn_code, airtemp_C,
-            baro_qaqc_adj, baro_qaqc_note, baro_qaqc_code
+            timestamp, airpress_kPa, airtemp_C,
+            baro_site_stn_code, baro_qaqc_adj, baro_qaqc_note, baro_qaqc_code
           ),
         by = "timestamp"
       ) %>%
       dplyr::arrange(site_station_code, timestamp)
     
   } else {
+    
     ## -------------------------------------------------------------------------
     ## AUTO BARO SELECTION (nearest neighbours, calibration)
     ## -------------------------------------------------------------------------
@@ -235,6 +185,13 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       dplyr::filter(metric == "barometric") %>%
       dplyr::select(baro_code = site_station_code, baro_lat = latitude, baro_lon = longitude) %>%
       dplyr::distinct()
+    
+    if (!nrow(site_coords)) {
+      stop("add_nearest_baro(): No site coordinates found for requested metrics in metadata.", call. = FALSE)
+    }
+    if (!nrow(baro_coords)) {
+      stop("add_nearest_baro(): No barometric stations found in metadata.", call. = FALSE)
+    }
     
     # All site × baro pairs, then compute distance & rank ----------------------
     site_baro_rank_raw <- tidyr::crossing(site_coords, baro_coords) %>%
@@ -265,30 +222,31 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
     baro_temp_list  <- list()
     
     for (baro_stn in baro_site_station_codes) {
+      
       baro_pattern <- paste0("^", escape_regex(baro_stn), "_BARO_.*\\.csv$")
-      file_path <- list.files(
+      
+      file_paths <- list.files(
         baro_data_path,
         pattern    = baro_pattern,
         full.names = TRUE,
         recursive  = TRUE
       )
       
-      if (!length(file_path)) {
-        warning("No baro files found for ", baro_stn)
+      if (!length(file_paths)) {
+        warning("add_nearest_baro(): No baro files found for ", baro_stn)
         next
       }
       
       file <- dplyr::bind_rows(
-        lapply(file_path, read.csv, stringsAsFactors = FALSE, check.names = FALSE)
+        lapply(file_paths, read.csv, stringsAsFactors = FALSE, check.names = FALSE)
       )
       
       if (!"timestamp" %in% names(file)) {
-        ts_cand <- intersect(
-          c("timestamp","Timestamp", "Date Time", "datetime", "date_time"),
-          names(file)
-        )
-        if (length(ts_cand) == 0)
-          stop("No timestamp column in file(s) for ", baro_stn)
+        ts_cand <- intersect(c("timestamp","Timestamp", "Date Time", "datetime", "date_time"),
+                             names(file))
+        if (length(ts_cand) == 0) {
+          stop("No timestamp column in file(s) for ", baro_stn, call. = FALSE)
+        }
         file <- dplyr::rename(file, timestamp = !!rlang::sym(ts_cand[1]))
       }
       
@@ -297,42 +255,29 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       press_col <- if ("airpress_kPa_adj" %in% names(file)) "airpress_kPa_adj" else "airpress_kPa"
       temp_col  <- if ("airtemp_C_adj"   %in% names(file)) "airtemp_C_adj"   else "airtemp_C"
       
+      if (!press_col %in% names(file)) {
+        warning("add_nearest_baro(): ", baro_stn, " missing airpress_kPa (or _adj). Skipping.")
+        next
+      }
+      
       press_clean <- file %>%
-        dplyr::select(timestamp, !!press_col) %>%
+        dplyr::select(timestamp, !!rlang::sym(press_col)) %>%
         dplyr::rename(!!baro_stn := !!rlang::sym(press_col))
       
       if (!is.null(temp_col) && temp_col %in% names(file)) {
         temp_clean <- file %>%
-          dplyr::select(timestamp, !!temp_col) %>%
+          dplyr::select(timestamp, !!rlang::sym(temp_col)) %>%
           dplyr::rename(!!baro_stn := !!rlang::sym(temp_col))
       } else {
-        temp_clean <- dplyr::tibble(
-          timestamp = press_clean$timestamp,
-          !!baro_stn := NA_real_
-        )
+        temp_clean <- dplyr::tibble(timestamp = press_clean$timestamp, !!baro_stn := NA_real_)
       }
       
       baro_press_list[[baro_stn]] <- press_clean
       baro_temp_list[[baro_stn]]  <- temp_clean
     }
     
-    if (!length(baro_press_list))
-      stop("No usable barometric files found under: ", baro_data_path)
-    if (!length(baro_temp_list))
-      stop("No usable barometric temperature files found under: ", baro_data_path)
-    
-    metric_code_map <- list(
-      "waterlevel"      = "WL",
-      "wl"              = "WL",
-      "do"              = "DO",
-      "dissolvedoxygen" = "DO"
-    )
-    
-    pct_missing <- function(x) {
-      if (is.null(x)) return(NA_real_)
-      n <- length(x)
-      if (n == 0) return(NA_real_)
-      round(mean(is.na(x)) * 100, 1)
+    if (!length(baro_press_list)) {
+      stop("No usable barometric files found under: ", baro_data_path, call. = FALSE)
     }
     
     sites <- unique(input_data$site_station_code)
@@ -352,11 +297,18 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       
       if (!length(baros_for_site)) {
         if (is.null(max_km)) {
-          warning("No barometric stations found in metadata for site ", site_i, ". Skipping.")
+          warning("add_nearest_baro(): No barometric stations found in metadata for site ", site_i, ". Skipping.")
         } else {
-          warning("No barometric stations within ", max_km,
+          warning("add_nearest_baro(): No barometric stations within ", max_km,
                   " km for site ", site_i, ". Skipping.")
         }
+        next
+      }
+      
+      # only keep baros we successfully loaded
+      baros_for_site <- baros_for_site[baros_for_site %in% names(baro_press_list)]
+      if (!length(baros_for_site)) {
+        warning("add_nearest_baro(): No usable baro files available for site ", site_i, ". Skipping.")
         next
       }
       
@@ -372,11 +324,12 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
       
       baro_cols <- setdiff(names(wide_press_site), "timestamp")
       if (length(baro_cols) == 0) {
-        warning("No baro columns for site ", site_i, " after merge.")
+        warning("add_nearest_baro(): No baro columns for site ", site_i, " after merge. Skipping.")
         next
       }
       
-      ref_col  <- baro_cols[0 + 1]
+      ref_col <- baro_cols[1]
+      
       calib <- calibrate_baro_series(
         wide_press  = wide_press_site,
         baro_cols   = baro_cols,
@@ -397,15 +350,12 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
         1,
         function(row) {
           idx <- which(!is.na(row))[1]
-          if (length(idx) == 0 || is.na(idx)) {
-            NA_character_
-          } else {
-            baro_cols[idx]
-          }
+          if (length(idx) == 0 || is.na(idx)) NA_character_ else baro_cols[idx]
         }
       )
       wide_baro_df_site$baro_site_stn_code <- baro_site_stn_code
       
+      # temperature: coalesce the raw temp series
       temp_syms <- rlang::syms(baro_cols)
       baro_temp_df_site <- wide_temp_site %>%
         dplyr::transmute(
@@ -421,14 +371,10 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
         ) %>%
         dplyr::left_join(baro_temp_df_site, by = "timestamp")
       
-      pct <- if ("airpress_kPa" %in% names(wide_baro_df_site)) {
-        pct_missing(wide_baro_df_site$airpress_kPa)
-      } else {
-        NA_real_
-      }
+      pct <- pct_missing(wide_baro_df_site$airpress_kPa)
       if (!is.na(pct) && pct > 0) {
         warning(sprintf(
-          "Baro data missing for %.1f%% of timestamps for site %s.",
+          "add_nearest_baro(): Baro data missing for %.1f%% of timestamps for site %s.",
           pct, site_i
         ))
       }
@@ -438,15 +384,12 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
         dplyr::mutate(percent = round(100 * count / sum(count), 1)) %>%
         dplyr::arrange(dplyr::desc(percent))
       
-      cat("\nBaro usage summary (% of timestamps) for site", site_i, ":\n")
+      cat("\nBaro usage summary (% of timestamps) for site ", site_i, ":\n", sep = "")
       print(baro_usage_summary)
       
-      na_gaps <- find_na_runs(
-        wide_baro_df_site,
-        value_col = "airpress_kPa"
-      )
+      na_gaps <- find_na_runs(wide_baro_df_site, value_col = "airpress_kPa")
       if (nrow(na_gaps) > 0) {
-        cat("Gaps located in baro data for site", site_i, ":\n")
+        cat("Gaps located in baro data for site ", site_i, ":\n", sep = "")
         print(na_gaps)
       }
       
@@ -461,56 +404,53 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
         ) %>%
         dplyr::arrange(site_station_code, timestamp)
       
-      metrics_site <- unique(df_site_with_baro$metric_norm)
-      
-      for (metric_key in metrics_site) {
-        metric_rows <- df_site_with_baro %>%
-          dplyr::filter(metric_norm == metric_key)
-        if (!nrow(metric_rows)) next
-        
-        metric_header <- if (metric_key %in% names(metric_code_map)) {
-          metric_code_map[[metric_key]]
-        } else {
-          toupper(metric_key)
-        }
-        
-        years_i <- unique(lubridate::year(metric_rows$timestamp))
-        
-        for (yy in years_i) {
-          site_year <- metric_rows %>%
-            dplyr::filter(lubridate::year(timestamp) == yy)
-          if (!nrow(site_year)) next
-          
-          start_str <- gsub("\\D", "", as.character(min(lubridate::date(site_year$timestamp))))
-          end_str   <- gsub("\\D", "", as.character(max(lubridate::date(site_year$timestamp))))
-          
-          year_dir <- file.path(path_to_output_folder, yy)
-          proc_dir <- file.path(year_dir, "processed")
-          if (!dir.exists(year_dir)) dir.create(year_dir, recursive = TRUE)
-          if (!dir.exists(proc_dir)) dir.create(proc_dir, recursive = TRUE)
-          
-          site_year$timestamp <- as.character(site_year$timestamp)
-          
-          out_name <- sprintf(
-            "%s_%s_%s_%s_v0.2.csv",
-            site_i, metric_header, start_str, end_str
-          )
-          out_path <- file.path(proc_dir, out_name)
-          
-          utils::write.csv(site_year, out_path, row.names = FALSE)
-          message(sprintf(
-            "Data (v0.2) from %s (%s) added to %s/processed",
-            site_i, metric_header, yy
-          ))
-        }
-      }
       df_with_baro_list[[site_i]] <- df_site_with_baro
     }
     
     df_with_baro <- dplyr::bind_rows(df_with_baro_list)
   }
   
-  # ---- QC plot + return (unchanged) ----
+  # ---- WRITE OUTPUTS (same behavior as before, but code-based naming) ----
+  sites_out <- unique(df_with_baro$site_station_code)
+  
+  for (site_i in sites_out) {
+    site_dat <- df_with_baro[df_with_baro$site_station_code == site_i, , drop = FALSE]
+    if (!nrow(site_dat)) next
+    
+    metrics_site <- unique(site_dat$metric_norm)
+    
+    for (metric_key in metrics_site) {
+      metric_rows <- dplyr::filter(site_dat, metric_norm == metric_key)
+      if (!nrow(metric_rows)) next
+      
+      metric_header <- metric_to_code(metric_key)
+      
+      years_i <- unique(lubridate::year(metric_rows$timestamp))
+      
+      for (yy in years_i) {
+        site_year <- dplyr::filter(metric_rows, lubridate::year(timestamp) == yy)
+        if (!nrow(site_year)) next
+        
+        start_str <- gsub("\\D", "", as.character(min(lubridate::date(site_year$timestamp))))
+        end_str   <- gsub("\\D", "", as.character(max(lubridate::date(site_year$timestamp))))
+        
+        year_dir <- file.path(path_to_output_folder, yy)
+        proc_dir <- file.path(year_dir, "processed")
+        dir.create(proc_dir, recursive = TRUE, showWarnings = FALSE)
+        
+        # timestamp export as character
+        site_year$timestamp <- as.character(site_year$timestamp)
+        
+        out_name <- sprintf("%s_%s_%s_%s_v0.2.csv", site_i, metric_header, start_str, end_str)
+        out_path <- file.path(proc_dir, out_name)
+        
+        utils::write.csv(site_year, out_path, row.names = FALSE)
+        message(sprintf("Data (v0.2) from %s (%s) written to %s", site_i, metric_header, out_path))
+      }
+    }
+  }
+  
+  # ---- QC plot + return ----
   qc_plot <- df_with_baro %>%
     dplyr::filter(!is.na(site_station_code)) %>%
     ggplot2::ggplot(
@@ -526,7 +466,7 @@ add_nearest_baro <- function(input_data, path_to_output_folder,
     ggplot2::theme_classic() +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, hjust = 1)) +
     ggplot2::labs(
-      title  = "Baro stitch QC by water-level site",
+      title  = "Baro stitch QC by site",
       x      = "Time",
       y      = "Air pressure (kPa)",
       color  = "Baro code"

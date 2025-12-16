@@ -1,4 +1,4 @@
-# test workflow
+# test wq workflow
 #
 # ---------------------------------------------------------------------
 
@@ -13,6 +13,8 @@
   # within the logging function, when it prints to the csv the "run_at" col automatically shows date/time as minutes:seconds.. would be nice if it showed properly as date time. 
     # I'm guessing a as.character() might fix this but haven't had time to rectify this yet
   # drifting with wq - can we add a non-linear drift correction
+  # confidence grading?
+  # Read me file to inform users of what each col/flag/adj means
 
 # metadata file 
 
@@ -30,8 +32,6 @@
 # Currently the log file is logging every single flag that's just automated... not sure if we should keep this or just keep actual changes..
 # would be nice to add a proper warning about if you can't open file xx: Permission denied when you have the file open; would be a helpul addition for non coders. Same for the following logger functions
 # Add field data to qaqc plots!! 
-
-
 
 
 library(tidyverse) # for use while this is still not in package format

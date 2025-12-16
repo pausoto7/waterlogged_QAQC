@@ -22,34 +22,38 @@
 resolve_metrics_param <- function(metrics) {
   # length check
   if (length(metrics) != 1L) {
-    stop("`metrics` must be a single value ('DO', 'water level', or 'both'), ",
+    stop("`metrics` must be a single value ('DO', 'water level', 'conductivity', 'both', or 'all'), ",
          "not a vector of length ", length(metrics), ".",
          call. = FALSE)
   }
   
   metrics_raw <- normalize_string(metrics)
   
-  valid_inputs <- c("do", "waterlevel", "both")
+  valid_inputs <- c("do", "waterlevel", "conductivity", "both", "all")
   if (!metrics_raw %in% valid_inputs) {
-    stop("`metrics` must be one of: 'DO', 'water level', or 'both'. You supplied: ",
+    stop("`metrics` must be one of: 'DO', 'water level', 'conductivity', 'both', or 'all'. You supplied: ",
          metrics, call. = FALSE)
   }
   
-  wl_keys <- c("waterlevel")
-  do_keys <- c("do", "dissolvedoxygen")
+  wl_keys   <- c("waterlevel")
+  do_keys   <- c("do", "dissolvedoxygen")
+  cond_keys <- c("conductivity", "cond")
   
   metrics_need_baro <- switch(
     metrics_raw,
-    "waterlevel" = wl_keys,
-    "do"         = do_keys,
-    "both"       = c(wl_keys, do_keys)
+    "waterlevel"    = wl_keys,
+    "do"            = do_keys,
+    "conductivity"  = cond_keys,
+    "both"          = c(wl_keys, do_keys),
+    "all"           = c(wl_keys, do_keys, cond_keys)
   )
   
   list(
-    metrics_raw      = metrics_raw,
+    metrics_raw       = metrics_raw,
     metrics_need_baro = metrics_need_baro
   )
 }
+
 
 
 #' Calibrate and stitch multiple barometric series

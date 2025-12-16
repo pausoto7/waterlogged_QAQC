@@ -1,71 +1,76 @@
-# Internal: build path to a station+metric log file
-qaqc_log_path <- function(log_root, station, metric) {
-  # logs live above the year folders, in a "logs" dir
-  log_dir  <- file.path(log_root, "logs")
-  log_file <- paste0(station, "_", metric, "_qaqc_log.csv")
-  file.path(log_dir, log_file)
-}
-
 # Internal: append rows to a station+metric log (create if missing)
 qaqc_log_append <- function(log_path, station, metric, log_rows) {
+  
+  if (is.null(log_rows) || !is.data.frame(log_rows) || nrow(log_rows) == 0) {
+    return(invisible(log_path))
+  }
   
   # Ensure log directory exists
   dir.create(dirname(log_path), recursive = TRUE, showWarnings = FALSE)
   
-  # Coerce time fields to character for stable CSV I/O
+  # Coerce time fields to character for stable CSV I/O (use stable format)
   log_rows <- log_rows %>%
     dplyr::mutate(
       ts_start = as.character(ts_start),
       ts_end   = as.character(ts_end),
-      run_at   = as.character(run_at)
+      run_at   = format(as.POSIXct(run_at, tz = "UTC"), "%Y-%m-%dT%H:%M:%S")
     )
   
+  # Create a stable dedupe key for new rows (does NOT need to be written)
+  key_new <- paste(
+    log_rows$station,
+    log_rows$metric,
+    log_rows$field,
+    log_rows$action,
+    log_rows$code,
+    log_rows$fun_name,
+    log_rows$ts_start,
+    log_rows$ts_end,
+    sep = "|"
+  )
+  
   if (file.exists(log_path)) {
-    existing <- utils::read.csv(log_path, stringsAsFactors = FALSE)
-    log_out  <- dplyr::bind_rows(existing, log_rows)
+    existing <- utils::read.csv(log_path, stringsAsFactors = FALSE, check.names = FALSE)
+    
+    # Back-compat: if existing has no necessary cols, fall back to append
+    need <- c("station","metric","field","action","code","fun_name","ts_start","ts_end")
+    if (!all(need %in% names(existing))) {
+      log_out <- dplyr::bind_rows(existing, log_rows)
+      utils::write.csv(log_out, log_path, row.names = FALSE)
+      return(invisible(log_path))
+    }
+    
+    existing <- existing %>%
+      dplyr::mutate(
+        ts_start = as.character(ts_start),
+        ts_end   = as.character(ts_end)
+      )
+    
+    key_old <- paste(
+      existing$station,
+      existing$metric,
+      existing$field,
+      existing$action,
+      existing$code,
+      existing$fun_name,
+      existing$ts_start,
+      existing$ts_end,
+      sep = "|"
+    )
+    
+    keep <- !key_new %in% key_old
+    log_rows <- log_rows[keep, , drop = FALSE]
+    
+    # nothing new to add
+    if (nrow(log_rows) == 0) {
+      return(invisible(log_path))
+    }
+    
+    log_out <- dplyr::bind_rows(existing, log_rows)
   } else {
     log_out <- log_rows
   }
   
   utils::write.csv(log_out, log_path, row.names = FALSE)
   invisible(log_path)
-}
-
-# Internal: create a single QA/QC log row
-make_qaqc_log_row <- function(timestamps,
-                               station,
-                               metric,
-                               field,
-                               action,
-                               code,
-                               action_note,
-                               manual_note,
-                               fun_name,
-                               user,
-                               run_time = Sys.time()) {
-  # No affected timestamps: nothing to log for this code
-  if (length(timestamps) == 0 || all(is.na(timestamps))) {
-    return(NULL)
-  }
-  
-  ts_start <- min(timestamps, na.rm = TRUE)
-  ts_end   <- max(timestamps, na.rm = TRUE)
-  
-  duration_hours <- as.numeric(difftime(ts_end, ts_start, units = "hours"))
-  
-  tibble::tibble(
-    station        = station,
-    metric         = metric,
-    field          = field,
-    action         = action,
-    code           = code,
-    action_note    = action_note,
-    manual_note    = manual_note,
-    ts_start       = ts_start,
-    ts_end         = ts_end,
-    duration_hours = duration_hours,
-    fun_name       = fun_name,
-    run_at         = run_time,
-    user           = user
-  )
 }
