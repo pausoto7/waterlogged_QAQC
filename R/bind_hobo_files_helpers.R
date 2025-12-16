@@ -43,7 +43,13 @@ QAQC_metadata <- function(metadata_path) {
     metadata$timestamp_deploy <- parse_dt(metadata$timestamp_deploy)
     metadata$timestamp_remove <- parse_dt(metadata$timestamp_remove)
     
-    # 4) Warn if any timestamps are NA after parsing
+    # 4) Warn if any timestamps are NA after parsing 
+    
+    ####
+    # NA values in timestamp_remove are expected if the logger is still logging
+    # update to produce an error if the is a value and the timestamp does not parse but ignore if the row was read in as "NA"
+    ####
+    
     na_deploy <- which(is.na(metadata$timestamp_deploy))
     na_remove <- which(is.na(metadata$timestamp_remove))
     if (length(na_deploy)) warning("Missing/invalid 'timestamp_deploy' on row(s): ", paste(na_deploy, collapse = ", "))
@@ -103,7 +109,7 @@ QAQC_metadata <- function(metadata_path) {
     }
     
     # 8) Metric / measurement_type QAQC (folded-in qc_measurement_type)
-    valid_metrics = c("waterlevel", "barometric", "conductivity", "dissolvedoxygen")
+    valid_metrics = c("waterlevel", "barometric", "conductivity", "dissolvedoxygen", "airtemp", "watertemp", "light")
     
     metric_raw <- metadata$metric
     metric_std <- gsub(" ", "", tolower(as.character(metric_raw)))
