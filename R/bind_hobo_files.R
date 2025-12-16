@@ -343,7 +343,7 @@ bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_
   }
   
   
-  # If logger_header is not succesfully reassigned above
+  # If logger_header is not successfully reassigned above
   if (is.na(logger_header)) {
     stop("Could not determine logger_header from column names and measurement_type.")
   }
