@@ -70,7 +70,8 @@ write_clean_data <- function(
   
   cfg <- metric_config[[metric]]
   if (is.null(cfg)) {
-    stop("write_clean_data(): Unsupported metric: ", metric)
+    stop("write_clean_data(): Unsupported metric: ", metric, 
+         "\nExpected metrics are: \"dissolvedoxygen\", \"barometric\", \"waterlevel\", \"watertemp\", \"airtemp\"")
   }
   
   # optional safety: if there's a metric column, make sure it matches
@@ -185,6 +186,8 @@ write_clean_data <- function(
             " written to ", year_i,
             " (", basename(file_out), ")")
   }
+  
+  cat("\n") # add line break in console
   
   invisible(input_data)
 }
