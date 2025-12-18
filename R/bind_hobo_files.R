@@ -53,7 +53,9 @@
 #' @importFrom purrr map_df
 #' @importFrom lubridate mdy_hms now year date
 #' @export
-bind_hobo_files <- function(path_to_raw_folder, path_to_output_folder, metadata_path,  timestamp_timezone = "UTC") {
+bind_hobo_files <- function(path_to_raw_folder, 
+                            path_to_output_folder, 
+                            metadata_path,  timestamp_timezone = "UTC") {
   
   # QAQC and format metadata file
   metadata <- QAQC_metadata(metadata_path)

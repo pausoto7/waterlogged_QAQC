@@ -338,16 +338,37 @@ wl_set_datum <- function(input_data,
   logger_data$wl_elev_m <- logger_data[[stage_col]] + datum_offset_m
   
   if (!"flag_wl_datum_applied" %in% names(logger_data)) {
-    logger_data$flag_wl_datum_applied <- FALSE
+    logger_data$flag_wl_datum_applied <- TRUE
+  } else {
+    logger_data$flag_wl_datum_applied <- TRUE
   }
-  logger_data$flag_wl_datum_applied <- TRUE
   
-  # ensure new cols exist in full input_data, then write back station rows
+  # ---- ensure columns exist in full input_data with correct types ------------
+  # wl_elev_m must be numeric
+  if (!"wl_elev_m" %in% names(input_data) || !is.numeric(input_data$wl_elev_m)) {
+    input_data$wl_elev_m <- NA_real_
+  }
+  
+  # flag must be logical
+  if (!"flag_wl_datum_applied" %in% names(input_data) || !is.logical(input_data$flag_wl_datum_applied)) {
+    input_data$flag_wl_datum_applied <- FALSE
+  }
+  
+  # any other new columns (future-proofing)
   new_cols <- setdiff(names(logger_data), names(input_data))
   if (length(new_cols) > 0) {
-    for (nm in new_cols) input_data[[nm]] <- NA
+    for (nm in new_cols) {
+      if (nm == "wl_elev_m") {
+        input_data[[nm]] <- NA_real_
+      } else if (startsWith(nm, "flag_") || startsWith(nm, "edit_")) {
+        input_data[[nm]] <- NA  # logical NA
+      } else {
+        input_data[[nm]] <- NA
+      }
+    }
   }
   
+  # bring station rows back into the full dataset
   input_data <- dplyr::rows_update(
     input_data,
     logger_data,

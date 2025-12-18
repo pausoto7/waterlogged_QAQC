@@ -6,6 +6,9 @@
 
 
 
+source("R/utils.R")
+source("R/bind_hobo_files_helpers.R")
+source("R/bind_hobo_files.R") # bind_hobo_files -> output v0.1
 
 # STEP 1 - BIND ALL HOBO FILES
 
@@ -64,8 +67,6 @@ all_checked_baro_data <- barometric_qaqc_all(
 source("R/add_nearest_baro_helpers.R")
 source("R/add_nearest_baro.R") # add nearest baro -> output v0.2
 
-#TO DO: 
-# can add baro logger to cond data to get air temp - talk to Julien
 input_wl_data <- add_nearest_baro(input_data = level_bound[[1]],
                                   path_to_output_folder = "data/testing/processed", 
                                   baro_data_path = "data/testing/processed",
@@ -98,11 +99,12 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
   # - add in a spot for a staff gauge?
   # - need to add in BM's to reference/field data
 
-
+source("R/wl_set_datum.R")
+source("R/qaqc_log_helpers.R")
 
 #NEW FUNCITON - STILL IN TESTING CURRENTLY -
 wl_with_datum <- wl_set_datum(
-  input_data       = converted_data,
+  input_data       = converted_data$site_wl,
   level_runs_path  = "data/testing/raw/example_wl_level_runs.csv" ,
   select_station   = "ALBR_ST_30",
   log_root         = "data/testing/processed",
