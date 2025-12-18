@@ -161,5 +161,7 @@ barometric_qaqc <- function(input_data,
   
   message("Barometric QAQC completed for: ", select_station)
   
+  cat("\n") # add line break in console
+  
   return(df)
 }

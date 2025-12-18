@@ -184,6 +184,9 @@ bind_hobo_files <- function(path_to_raw_folder,
   
   #####
   # NEED TO ADD CODE FOR TIDBIT QAQC STILL, ALSO WHAT HAPPENS IF USER HAS MORE THAN 1 LOGGER TYPE?
+  # U20s and TidbiTs can be used for different metrics (U20 can be barometricpressure or waterlevel, 
+  # TidbiT can be air or water temperature, Pendant can be temp/light/event)
+  # perhaps separate by model and metric?
   #####
   
   logger_type <- unique(metadat_link$model)
@@ -342,7 +345,7 @@ bind_hobo_files <- function(path_to_raw_folder,
   }
   
   
-  # If logger_header is not succesfully reassigned above
+  # If logger_header is not successfully reassigned above
   if (is.na(logger_header)) {
     stop("Could not determine logger_header from column names and measurement_type.")
   }
