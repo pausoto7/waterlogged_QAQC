@@ -93,7 +93,7 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
                                            path_to_output_folder= "data/testing/processed") 
 
 # NEXT STEPS:
-  # - need to create a datum that's referenced to continuous WL (and will we have an arbitary or geodetic datum)
+  # - need to create a datum that's referenced to continuous WL (and will we have an arbitary datum)
   # - relate that to benchmarks and surveyed water surface
 
   # - add in a spot for a staff gauge?
@@ -103,6 +103,7 @@ source("R/wl_set_datum.R")
 source("R/qaqc_log_helpers.R")
 
 #NEW FUNCITON - STILL IN TESTING CURRENTLY -
+# Needs to be thought out more - 
 wl_with_datum <- wl_set_datum(
   input_data       = converted_data$site_wl,
   level_runs_path  = "data/testing/raw/example_wl_level_runs.csv" ,
