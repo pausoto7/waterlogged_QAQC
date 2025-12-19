@@ -9,7 +9,7 @@
   # a universal function could probably be created for writing csv names
 
   # Would be nice to have a function to compare visually between stations - probably similar code to plot_qaqc_timeseries but would be same metric diff stations
-  # should we add the ability to remove flags/edits? Would need to be removed in both the log and associated col
+  # should we add the ability to remove flags/edits from log? Would need to be removed in both the log and associated col
   # within the logging function, when it prints to the csv the "run_at" col automatically shows date/time as minutes:seconds.. would be nice if it showed properly as date time. 
     # I'm guessing a as.character() might fix this but haven't had time to rectify this yet
   # drifting with wq - can we add a non-linear drift correction
@@ -18,20 +18,19 @@
 
 # metadata file 
 
-  # should we add a comments col?
-  # check metadata qc script - does it use plot title to garner logger ID? If so may want to change b/c cond loggers had diff titles vs numbs
+  # check metadata qc script - does it use file title to garner logger ID? If so may want to change b/c cond loggers had diff titles vs numbs
 
 # Time zones
   
   # if using lubridate, time zones will be automatic to the area which the script is run... how can we know the user is putting in the right
     # timezone for where they are and R is reading it properly?
   
+# plotting 
 
-# improve plotting -> right now when you zoom in there's few or none x axis labels. Would be beneficial to add more for better understanding of scale. 
-#                  -> Could also benefit from at least the zero line being shown 
-# Currently the log file is logging every single flag that's just automated... not sure if we should keep this or just keep actual changes..
-# would be nice to add a proper warning about if you can't open file xx: Permission denied when you have the file open; would be a helpul addition for non coders. Same for the following logger functions
-# Add field data to qaqc plots!! 
+  # right now when you zoom in there's few or none x axis labels. Would be beneficial to add more for better understanding of scale. 
+  # Could also benefit from at least the zero line being shown 
+  # Currently the log file is logging every single flag that's just automated... not sure if we should keep this or just keep actual changes..
+  # would be nice to add a proper warning about if you can't open file xx: Permission denied when you have the file open; would be a helpul addition for non coders. Same for the following logger functions
 
 
 library(tidyverse) # for use while this is still not in package format

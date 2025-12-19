@@ -4,7 +4,7 @@
 # NOTES
   # Add field data functionality + correct stage from field -> requires having a datum. 
 
-
+library(tidyverse)
 
 source("R/utils.R")
 source("R/bind_hobo_files_helpers.R")
@@ -92,18 +92,19 @@ converted_data <- convert_waterlevel_kPa_m(input_data = input_wl_data[[1]],
                                            logger_type_expected = "u20",
                                            path_to_output_folder= "data/testing/processed") 
 
-# NEXT STEPS:
-  # - need to create a datum that's referenced to continuous WL (and will we have an arbitary datum)
-  # - relate that to benchmarks and surveyed water surface
 
-  # - add in a spot for a staff gauge?
-  # - need to add in BM's to reference/field data
 
 source("R/wl_set_datum.R")
 source("R/qaqc_log_helpers.R")
 
-#NEW FUNCITON - STILL IN TESTING CURRENTLY -
-# Needs to be thought out more - 
+# NEW FUNCITON - STILL IN TESTING CURRENTLY -
+# Needs to be thought out more 
+#   Function works if you're starting from scratch, but some additional code is probably
+#   needed if we have a user that wants to use a datum from previous years without 
+#   uploading all of the field visits starting from the first year the datum was created.
+#      - One potential idea I had was using the info from the log? 
+# 
+
 wl_with_datum <- wl_set_datum(
   input_data       = converted_data$site_wl,
   level_runs_path  = "data/testing/raw/example_wl_level_runs.csv" ,
@@ -112,6 +113,13 @@ wl_with_datum <- wl_set_datum(
   user             = Sys.info()[["user"]]
 )
 
+# NEXT STEPS:
+
+# - need to take field datum corrected to datum and plot with timeseries for qaqc
+# - new function will likely need to be created? Or functionality added to
+#     current plotting function
+
+
 
 
 # WATER LEVEL QAQC  -----------------------------------------------------------------------------
@@ -119,9 +127,13 @@ wl_with_datum <- wl_set_datum(
 
 
 source("R/waterlevel_qaqc.R")
+
+# the logger function is currently exporting date/times that end in 00:00:00 into csv as just date. 
+# need to fix that so that time is added even if it's midnight
 source("R/qaqc_log_helpers.R")
 
 # FYI - This code has now been split into two functions 1) waterlevel_complete_QAQC   2) waterlevel_qaqc_plot
+# in the logging portion of this function weird symbology happening when °C is printed, need to fix
 waterlevel_complete_QAQC <- waterlevel_qaqc(converted_data[[1]],
                                             log_root = "data/testing/processed", 
                                             select_station = "ALBR_ST_30") 
@@ -136,7 +148,7 @@ source("R/plot_qaqc_timeseries.R")
 plot_qaqc_timeseries(
   wl_data   = waterlevel_complete_QAQC,
   do_data   = NULL,
-  baro_data = NULL,   # from barometric_qaqc(), optional
+  baro_data = NULL,   
   select_station = "ALBR_ST_30"
 )
 
@@ -147,9 +159,12 @@ plot_qaqc_timeseries(
 # NEW: Multi point drift correction -------------------------------------------
 
 # drift correction tool for wl sensor drift. Typically used to correct to field 
-# survey easurements 
+# survey measurements 
 
 source("R/drift_wl.R")
+
+
+# used by inputting the dates and drift amounts into a tibble which is then read into the function
 
 drift_pts <- tibble::tibble(
   timestamp = c("2024-10-10 10:00:00",
@@ -209,8 +224,6 @@ station_wl_qc <- adjust_waterlevel_spike(input_data = waterlevel_complete_QAQC,
 
 
 
-
-
 # plot -------------------------------------------------------------------------------
 # would like to look into playing around with x axis changing with amount of zoom in? 
 # Currently if you zoom in too far the date fully disappears
@@ -221,8 +234,6 @@ plot_qaqc_timeseries(
   baro_data = NULL,   # from barometric_qaqc(), optional
   select_station = "ALBR_ST_30"
 )
-
-
 
 
 adjusted_WL_NA <- adjust_logger_NA( station_wl_qc2,
