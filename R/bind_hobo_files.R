@@ -57,6 +57,16 @@ bind_hobo_files <- function(path_to_raw_folder,
                             path_to_output_folder, 
                             metadata_path,  timestamp_timezone = "UTC") {
   
+  # check if folder paths exist
+  # metadata path checked in QAQC_metadata script
+  if(!dir.exists(path_to_raw_folder)) {
+    stop("Folder not found: ", path_to_raw_folder)
+  }
+  
+  if(!dir.exists(path_to_output_folder)) {
+    stop("Folder not found: ", path_to_output_folder)
+  }
+  
   # QAQC and format metadata file
   metadata <- QAQC_metadata(metadata_path)
   
@@ -68,7 +78,6 @@ bind_hobo_files <- function(path_to_raw_folder,
   
   # extract data from hobo file(s)
   hobo_data_raw <- purrr::map_df(path_to_files, extract_alldata_from_file)
-  
   
   # Error messages for file binding
   if (length(unique(hobo_data_raw$data1_type)) > 1) {
@@ -105,7 +114,8 @@ bind_hobo_files <- function(path_to_raw_folder,
   hobo_data_raw$timestamp <- lubridate::mdy_hms(hobo_data_raw$timestamp)
   
   if(any(is.na(hobo_data_raw$timestamp))) {
-    missing_ts <- hobo_data_raw %>% filter(is.na(timestamp))
+    missing_ts <- hobo_data_raw %>% 
+      dplyr::filter(is.na(timestamp))
     missing_ts_sn <- unique(missing_ts$sn)
     
     warning(paste("NAs produced in timestamp for logger SN:",missing_ts_sn,". Make sure the timestamp column in csv is formatted as mm/dd/yy HH:MM:SS AM/PM (%m/%d/%y %I:%M:%S %p). Correct and try again."))
@@ -122,7 +132,7 @@ bind_hobo_files <- function(path_to_raw_folder,
   }
   
   # link sn to site_station_code in metadata
-  metadat_link <- metadata %>% filter(sn %in% unique(hobo_data_raw$sn))
+  metadat_link <- metadata %>% dplyr::filter(sn %in% unique(hobo_data_raw$sn))
   
   measurement_type <- unique(metadat_link$metric)
   
@@ -142,10 +152,10 @@ bind_hobo_files <- function(path_to_raw_folder,
   
   for(serial_num in 1:length(uniq_sn_list)){
     logger_i <- uniq_sn_list[serial_num]
-    data_i <- hobo_data_raw %>% filter(sn ==logger_i)
+    data_i <- hobo_data_raw %>% dplyr::filter(sn ==logger_i)
     
     # get site codes for each sn
-    metadat_i <- metadat_link %>% filter(sn==logger_i)
+    metadat_i <- metadat_link %>% dplyr::filter(sn==logger_i)
     
     # if no metadat for that logger produce error message
     if(length(metadat_i$sn)==0){
@@ -166,7 +176,7 @@ bind_hobo_files <- function(path_to_raw_folder,
     } # end of j loop
     
     # trim data to within install/removal at each site
-    data_i <- data_i %>% drop_na(site_station_code)
+    data_i <- data_i %>% tidyr::drop_na(site_station_code)
     sites_compiled <- rbind(sites_compiled, data_i)
     
   } # end of i loop
@@ -201,8 +211,7 @@ bind_hobo_files <- function(path_to_raw_folder,
   
   # mutate a column for logger type and metric  
   sites_compiled <- sites_compiled %>%
-    mutate(logger_type = logger_type, 
-           metric = measurement_type)
+    dplyr::mutate(logger_type = logger_type, metric = measurement_type)
   
   
   # setting this sa default. That way if logger_header is not assigned in anything below we can create an error.
@@ -227,7 +236,9 @@ bind_hobo_files <- function(path_to_raw_folder,
   }
   
   # BAROMETRIC LOGGER ---------------------------------------------------
-  if (colnames(sites_compiled)[3] == "Abs Pres kPa" & measurement_type == "barometric") {
+  if (colnames(sites_compiled)[3] == "Abs Pres kPa" && measurement_type == "barometric") {
+    # note: suggest modifying conditionals to use identical() instead of == to ensure length 1
+      # even if this doesn't cause problems currently
     colnames(sites_compiled)[3] <- "airpress_kPa"
     sites_compiled <- sites_compiled[complete.cases(sites_compiled$airpress_kPa),]
     logger_header <- "BARO"
@@ -244,7 +255,7 @@ bind_hobo_files <- function(path_to_raw_folder,
   }
   
   # WATER LEVEL LOGGER --------------------------------------------------
-  if (colnames(sites_compiled)[3] == "Abs Pres kPa" & measurement_type == "waterlevel") {
+  if (colnames(sites_compiled)[3] == "Abs Pres kPa" && measurement_type == "waterlevel") {
     colnames(sites_compiled)[3] <- "waterpress_kPa"
     logger_header <- "WL"
     
@@ -260,24 +271,24 @@ bind_hobo_files <- function(path_to_raw_folder,
   }
   
   # TIDBIT WATER TEMP LOGGER -------------------------------------------
-  if (colnames(sites_compiled)[3] == "Temp °C" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp °C" && logger_type == "tidbit") {
     logger_header <- "WT"
     colnames(sites_compiled)[3] <- "watertemp_C"
   }
   
-  if (colnames(sites_compiled)[3] == "Temp °F" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp °F" && logger_type == "tidbit") {
     logger_header <- "WT"
     sites_compiled[[3]] <- convert_F_to_C(sites_compiled[[3]])
     colnames(sites_compiled)[3] <- "watertemp_C"
   }
   
   # TIDBIT AIR TEMP LOGGER ---------------------------------------------
-  if (colnames(sites_compiled)[3] == "Temp °C" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp °C" && logger_type == "tidbit") {
     logger_header <- "AT"
     colnames(sites_compiled)[3] <- "airtemp_C"
   }
   
-  if (colnames(sites_compiled)[3] == "Temp °F" & logger_type == "tidbit") {
+  if (colnames(sites_compiled)[3] == "Temp °F" && logger_type == "tidbit") {
     logger_header <- "AT"
     sites_compiled[[3]] <- convert_F_to_C(sites_compiled[[3]])
     colnames(sites_compiled)[3] <- "airtemp_C"
@@ -363,7 +374,8 @@ bind_hobo_files <- function(path_to_raw_folder,
   for(i in 1:length(unique(sites_compiled$site_station_code))) {
     
     site_i <- unique(sites_compiled$site_station_code)[i]
-    site_dat <- sites_compiled %>% filter(site_station_code==site_i)
+    site_dat <- sites_compiled %>% 
+      dplyr::filter(site_station_code==site_i)
     
     # split by year
     years_i <- unique(lubridate::year(site_dat$timestamp))

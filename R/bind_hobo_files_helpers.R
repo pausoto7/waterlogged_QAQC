@@ -12,6 +12,8 @@ QAQC_metadata <- function(metadata_path) {
     metadata <- read.csv(metadata_path, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE)
     
     # Remove completely empty rows (all NA or all blank strings)
+      # note: this will fail for datetime cols (not currently an issue). 
+      # Suggest changing blanks to NA first if the input method changes.
     metadata <- metadata[rowSums(is.na(metadata) | metadata == "") != ncol(metadata), ]
     
     # 3) Required columns present?
@@ -26,7 +28,7 @@ QAQC_metadata <- function(metadata_path) {
     # 4) Parse timestamps (expect mdy_hm; auto-UTC)
     parse_dt <- function(x) {
       x_chr <- as.character(x)
-      p1 <- try(lubridate::mdy_hm(x_chr, tz = "UTC"), silent = TRUE)
+      p1 <- try(lubridate::mdy_hm(x_chr, tz = "UTC", quiet = TRUE), silent = TRUE)
       if (!inherits(p1, "try-error") && !all(is.na(p1))) return(p1)
       p2 <- suppressWarnings(
         lubridate::parse_date_time(
