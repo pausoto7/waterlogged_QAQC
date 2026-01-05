@@ -67,7 +67,7 @@ get_logger_data <- function(path_to_data,
                             temporal_scale  = "none",
                             return_plots    = TRUE) {
   
-  temporal_scale <- normalise_temporal_scale(temporal_scale)
+ #  temporal_scale <- normalise_temporal_scale(temporal_scale)
   dp_info        <- resolve_data_processing_pattern(data_processing)
   data_processing <- dp_info$data_processing
   pattern         <- dp_info$pattern
